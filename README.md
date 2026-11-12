@@ -28,6 +28,24 @@
 - **Fixes:** member lists refresh after 30 seconds rather than 10 minutes, and
   the connection to Discord stays open while idle, so a message after a quiet
   minute goes out without a new handshake.
+- **Security:** rustls, the TLS library every connection to Discord goes
+  through, is updated to 0.23.46, which fixes
+  [GHSA-c8m5-c952-6cm4](https://github.com/advisories/GHSA-c8m5-c952-6cm4):
+  printing a TLS session for debugging could show its keys.
+
+### Checked before every release
+
+- [SonarQube](https://www.sonarsource.com/products/sonarqube/): 0 bugs,
+  vulnerabilities, security hotspots or code smells in the code this fork adds.
+- [gitleaks](https://github.com/gitleaks/gitleaks): no secrets in the commits.
+- [trivy](https://trivy.dev) and
+  [cargo-audit](https://github.com/rustsec/rustsec): no known vulnerability in
+  anything the Discord build contains. The advisories they list are in
+  Matrix-only crates or in tools that run only while building.
+- The downloads contain no login token, settings or personal paths: Yapfast
+  keeps your token in your system's credential store, never in its files,
+  and the release builds rewrite the build machine's folder names.
+- Each release has `SHA256SUMS.txt` and the exact source it was built from.
 
 ### About gg sans
 
@@ -75,9 +93,10 @@ A version is the upstream release it's based on, then `-dl.` and this fork's
 release number: `0.3.0-dl.1` is upstream 0.3.0 with this fork's first
 release of changes. A new upstream release becomes `…-dl.1` again.
 
-The releases are built by GitHub Actions
-([`release.yml`](.github/workflows/release.yml)) on GitHub's machines,
-from the tagged commit, not on anyone's own PC.
+The releases are built from the tagged commit with the same steps as
+[`release.yml`](.github/workflows/release.yml): Nix's pinned toolchain, and
+upstream's packaging scripts, which refuse a program that names the build
+machine's home folder.
 
 ## Build it from source
 
