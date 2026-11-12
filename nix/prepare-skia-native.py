@@ -48,7 +48,7 @@ objcopy_version: str = subprocess.check_output([objcopy, '--version'], text=True
 # Nix pins 21.1.7, but a native host's LLVM is often newer; the checks for the
 # symbols and sections below, not the version string, are what keep the
 # rename to Skia's one JPEG table.
-version: re.Match[str] | None = re.search(r'LLVM version ([0-9]+)', objcopy_version)
+version: re.Match[str] | None = re.search(r'LLVM version (\d+)', objcopy_version)
 objcopy_major: int
 try:
     objcopy_major = int(version.group(1)) if version else 0
