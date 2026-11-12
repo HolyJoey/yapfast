@@ -58,7 +58,8 @@ starts one. Yapfast opens it once its CHANNEL_CREATE lists it.
 ## Friends and requests
 
 "Friends", at the top of the DM list, opens the friends list in place of the
-conversation. It lists the account's friends from READY's relationships by
+conversation. Yapfast also opens it at launch and whenever Direct Messages is
+chosen in the rail. It lists the account's friends from READY's relationships by
 name, each with their status dot and custom status or activity, under two tabs
 in the header: Online, for those online, idle or on do not disturb, and All. A
 search field filters it by name, and "Add Friend" in the header opens the

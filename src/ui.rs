@@ -201,6 +201,12 @@ pub fn run(
     if preview {
         adapter.borrow_mut().action(&window, Action::Preview);
     } else if yapfast_core::chat::can_restore(&adapter.borrow().root) {
+        // Like Discord, a restored session opens on the Friends screen rather
+        // than the last DM; a link opened at launch still selects its room.
+        #[cfg(feature = "discord")]
+        adapter
+            .borrow_mut()
+            .action(&window, Action::OpenDmScreen(DmScreen::Friends));
         adapter.borrow_mut().action(&window, Action::Restore);
     } else {
         window.invoke_focus_sign_in();

@@ -239,6 +239,23 @@ fn navigation_restores_each_scope_selection_and_draft() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn direct_messages_open_on_friends_with_discord() {
+    let mut app = connected();
+    app.state.discord_linked = true;
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    app.dispatch(Action::SelectRoom("games".into()));
+    app.dispatch(Action::Navigate(Navigation::DirectMessages));
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    // Opening a DM from a server still shows that DM.
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    app.dispatch(Action::Open("dm".into()));
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!((app.state.dm_screen, app.state.selected.as_deref()), (None, Some("dm")));
+}
+
+#[test]
 fn servers_open_their_last_channel_across_runs_or_the_top_one() {
     let mut app = connected();
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));

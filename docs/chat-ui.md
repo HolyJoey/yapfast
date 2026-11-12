@@ -49,9 +49,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   The arrow keys or Tab choose, and Enter or a click goes there: a server
   opens on its channel shown last. Unread places show bold, and mentions as
   a count.
-- Restore each server's last selected channel and the last selected DM. Yapfast
-  keeps each server's channel in `layout.json`, so after a restart a server
-  opens its last channel; a server opened for the first time shows its top one.
+- Restore each server's last selected channel. Yapfast keeps each server's
+  channel in `layout.json`, so after a restart a server opens its last channel;
+  a server opened for the first time shows its top one. With a Discord account,
+  Direct Messages opens on the Friends screen, both at launch and from the
+  rail, as Discord's home button does; without one it restores the last DM.
 - List the joined members of the open text channel or group DM on the right,
   grouped under ADMINS, MODERATORS and MEMBERS by Matrix power level (100 and
   50), each by name. The first view fetches the full list from the homeserver,

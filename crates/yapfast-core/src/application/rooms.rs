@@ -445,6 +445,13 @@ impl Application {
         self.state.navigation = navigation;
         self.state.dm_screen = None;
         self.state.browse = None;
+        // Like Discord's home button, Direct Messages opens on Friends; opening
+        // a DM from elsewhere selects it right after, which closes the screen.
+        #[cfg(feature = "discord")]
+        if self.state.navigation == Navigation::DirectMessages && self.state.discord_linked {
+            self.state.dm_screen = Some(DmScreen::Friends);
+            return self.deselect();
+        }
         self.restore_selection()
     }
 
