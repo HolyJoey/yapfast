@@ -33,20 +33,6 @@
   [GHSA-c8m5-c952-6cm4](https://github.com/advisories/GHSA-c8m5-c952-6cm4):
   printing a TLS session for debugging could show its keys.
 
-### Checked before every release
-
-- [SonarQube](https://www.sonarsource.com/products/sonarqube/): 0 bugs,
-  vulnerabilities, security hotspots or code smells in the code this fork adds.
-- [gitleaks](https://github.com/gitleaks/gitleaks): no secrets in the commits.
-- [trivy](https://trivy.dev) and
-  [cargo-audit](https://github.com/rustsec/rustsec): no known vulnerability in
-  anything the Discord build contains. The advisories they list are in
-  Matrix-only crates or in tools that run only while building.
-- The downloads contain no login token, settings or personal paths: Yapfast
-  keeps your token in your system's credential store, never in its files,
-  and the release builds rewrite the build machine's folder names.
-- Each release has `SHA256SUMS.txt` and the exact source it was built from.
-
 ### About gg sans
 
 gg sans is Discord's own typeface, and its licence doesn't allow passing it on,
