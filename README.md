@@ -86,8 +86,18 @@ machine's home folder.
 
 ## Build it from source
 
-You need about 40 GB of disk space, 8 GB of RAM (16 GB is better), and 15 to
-40 minutes for the first build.
+Measured building `0.3.0-dl.1` on a 12-core laptop with 16 GB of RAM:
+
+| Build | Free disk space | Time, first build |
+| --- | --- | --- |
+| Linux, with Nix (AppImage) | about 15 GB | about 20 minutes, downloads included |
+| Windows, with Nix, on top of that | about 8 GB more | about 25 minutes more |
+
+Without Nix, plan on about 15 GB as well. Building needs at least 8 GB of RAM,
+since one part of the interface takes 7 to 8 GB on its own; 16 GB is better.
+On a machine with fewer cores it takes longer. Most of the space is temporary
+build files: once Yapfast is built, `cargo clean` (or deleting `target/`)
+gives it back.
 
 ### Linux, with Nix (the way the releases are built)
 
