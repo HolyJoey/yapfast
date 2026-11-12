@@ -1111,6 +1111,8 @@ impl Tracker {
                     activities: known.activities,
                     roles: Arc::default(),
                     timed_out_until: None,
+                    tag: names.server_tag(user).cloned(),
+                    bot: names.is_bot(user),
                 }
             })
             .collect();
@@ -1408,6 +1410,7 @@ impl Tracker {
                     activities: known
                         .map(|known| known.activities.clone())
                         .unwrap_or_default(),
+                    tag: names.server_tag(user).cloned(),
                 }
             })
             .collect();
@@ -1556,10 +1559,21 @@ impl Tracker {
             .request
             .then(|| self.previews.get(&private.id).cloned())
             .flatten();
+        let faces = if private.group && private.icon.is_none() {
+            private
+                .recipients
+                .iter()
+                .take(2)
+                .map(|user| names.avatar(None, user))
+                .collect()
+        } else {
+            Vec::new()
+        };
         Conversation {
             id: private.id.clone(),
             name: title,
             avatar,
+            faces,
             group: private.group,
             people: private.recipients.len() + 1,
             request: private.request,

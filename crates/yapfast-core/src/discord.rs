@@ -659,12 +659,15 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        faces: dm.faces.clone(),
         upload_limit: yapfast_discord::api::upload_limit(premium, None),
         presence: dm.presence.map(presence),
         activity: dm.activity.clone(),
         activities: dm.activities.clone(),
         parent: None,
         forum: false,
+        announcement: false,
+        rules: false,
         unlisted: false,
         preview: dm.preview.as_ref().map(|preview| {
             Box::new(chat::RequestPreview {
@@ -800,6 +803,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                faces: Vec::new(),
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -809,6 +813,8 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: false,
+                announcement: false,
+                rules: false,
                 unlisted: false,
                 preview: None,
             }
@@ -846,6 +852,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                faces: Vec::new(),
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -855,6 +862,8 @@ fn server_rooms(
                 ),
                 parent: None,
                 forum: channel.forum.is_some(),
+                announcement: channel.announcement,
+                rules: server.rules_channel.as_deref() == Some(channel.id.as_str()),
                 unlisted: unlisted(channel),
                 preview: None,
             }
@@ -922,12 +931,15 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        faces: Vec::new(),
         presence: None,
         activity: None,
         activities: Default::default(),
         upload_limit: yapfast_discord::api::upload_limit(premium, Some(server.premium_tier)),
         parent: Some(parent.id.clone()),
         forum: false,
+        announcement: false,
+        rules: false,
         unlisted: parent.unlisted,
         preview: None,
     }
@@ -1774,4 +1786,19 @@ mod tests {
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
     }
+}
+
+/// A Discord server tag as the core shows it.
+#[cfg(feature = "discord")]
+pub fn name_tag(tag: Option<yapfast_discord::message::Tag>) -> Option<chat::NameTag> {
+    tag.map(|tag| chat::NameTag {
+        text: tag.text.into(),
+        badge: tag.badge.map(Into::into),
+        decoration: tag.decoration.map(Into::into),
+        nameplate: tag.nameplate.map(Into::into),
+        palette: tag.palette.map(Into::into),
+        font: tag.font,
+        effect: tag.effect,
+        colors: tag.colors.into_vec(),
+    })
 }

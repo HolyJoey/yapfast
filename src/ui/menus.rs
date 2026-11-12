@@ -18,6 +18,9 @@ pub(super) const HEADER: &str = "header:";
 /// thread's room id: the header in full view, and the one beside its channel.
 pub(super) const TOOLBAR: &str = "thread-toolbar:";
 pub(super) const SIDEBAR: &str = "thread-sidebar:";
+/// A friend's ⋮ menu in the friends list, before their user id: Discord's
+/// short one, of calls and removing them.
+pub(super) const FRIEND_MORE: &str = "friend-more:";
 
 /// The thread a header's More menu is about, and where Discord's client says
 /// a choice in it came from.
@@ -47,7 +50,14 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     let state = &app.state;
     let in_voice = voice_target(id);
     let thread = thread_more(id);
-    let choices = if let Some((room, user)) = in_voice {
+    let friend_more = id.strip_prefix(FRIEND_MORE);
+    let choices = if friend_more.is_some() {
+        vec![
+            MenuChoice::VideoCall,
+            MenuChoice::Call,
+            MenuChoice::Unfriend,
+        ]
+    } else if let Some((room, user)) = in_voice {
         app.voice_person_choices(room, user)
     } else if let Some((room, _)) = thread {
         app.thread_more_choices(room)
@@ -61,8 +71,9 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     let id = match (in_voice, thread) {
         (Some((_, user)), _) => user,
         (None, Some((room, _))) => room,
-        (None, None) => id.strip_prefix(HEADER).unwrap_or(id),
+        (None, None) => friend_more.unwrap_or_else(|| id.strip_prefix(HEADER).unwrap_or(id)),
     };
+    let person = person || friend_more.is_some();
     let voice_person = in_voice.and_then(|(room, user)| app.voice_person(room, user));
     // Moderation names whom it's about, as Discord's does.
     let named = std::cell::OnceCell::new();
@@ -101,6 +112,13 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 }
                 MenuChoice::EditChannel if category => ("Edit category".into(), &icons.edit),
                 MenuChoice::DeleteChannel if category => ("Delete category".into(), &icons.delete),
+                // Discord's own words in a friend's ⋮ menu.
+                MenuChoice::Call if friend_more.is_some() => {
+                    ("Start Voice Call".into(), &icons.call)
+                }
+                MenuChoice::Unfriend if friend_more.is_some() => {
+                    ("Remove Friend".into(), &icons.unfriend)
+                }
                 choice => {
                     let (text, icon) = label(icons, choice, in_call);
                     (text.to_owned(), icon)
@@ -277,6 +295,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Unpin => ("Unpin", &icons.unpin),
         MenuChoice::Call if in_call => ("Join call", &icons.call),
         MenuChoice::Call => ("Start call", &icons.call),
+        MenuChoice::VideoCall => ("Start Video Call", &icons.video),
         MenuChoice::AddNote => ("Add note", &icons.note),
         MenuChoice::AddNickname => ("Add friend nickname", &icons.nickname),
         MenuChoice::EditNickname => ("Change friend nickname", &icons.nickname),
@@ -707,6 +726,11 @@ pub(super) fn choose(
         .strip_prefix(HEADER)
         .map(str::to_owned)
         .unwrap_or(target);
+    // A friend's ⋮ menu acts on them.
+    let (target, person) = match target.strip_prefix(FRIEND_MORE) {
+        Some(user) => (user.to_owned(), true),
+        None => (target, person),
+    };
     let server = adapter
         .app
         .state
@@ -800,6 +824,7 @@ pub(super) fn choose(
         MenuChoice::JoinVoice => Some(Action::RequestJoinVoice(target)),
         MenuChoice::OpenChat => Some(Action::OpenChat(target)),
         MenuChoice::Call if person => Some(Action::CallPerson(target.clone())),
+        MenuChoice::VideoCall => Some(Action::VideoCallPerson(target.clone())),
         MenuChoice::Call => room.map(Action::RequestJoinVoice),
         MenuChoice::Profile if person => Some(Action::ShowProfile {
             user: target,
@@ -994,7 +1019,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 66] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1006,6 +1031,7 @@ const CHOICES: [MenuChoice; 65] = [
     MenuChoice::Pin,
     MenuChoice::Unpin,
     MenuChoice::Call,
+    MenuChoice::VideoCall,
     MenuChoice::AddNote,
     MenuChoice::AddNickname,
     MenuChoice::EditNickname,
@@ -1075,6 +1101,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::Pin => "pin",
         MenuChoice::Unpin => "unpin",
         MenuChoice::Call => "call",
+        MenuChoice::VideoCall => "video-call",
         MenuChoice::AddNote => "add-note",
         MenuChoice::AddNickname => "add-nickname",
         MenuChoice::EditNickname => "edit-nickname",

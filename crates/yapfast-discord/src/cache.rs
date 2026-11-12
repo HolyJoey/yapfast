@@ -57,9 +57,12 @@ use crate::{
 /// Changes within this long go to disk together.
 const SAVE_DELAY: Duration = Duration::from_secs(20);
 /// Where on Discord's CDN the pictures Yapfast keeps live.
-const PICTURE_PATHS: [&str; 9] = [
+const PICTURE_PATHS: [&str; 12] = [
     "/app-assets/",
     "/app-icons/",
+    "/assets/collectibles/",
+    "/avatar-decoration-presets/",
+    "/guild-tag-badges/",
     "/avatars/",
     "/banners/",
     "/embed/avatars/",

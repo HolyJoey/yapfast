@@ -626,11 +626,13 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         ),
         Delivery::Failed => ("Not sent. The server refused this message.", true, true),
     };
+    let delivery_quiet = message.delivery == Delivery::Sending;
     let reply_author = message
         .reply
         .as_ref()
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
+    let looks = row_looks(message.tag.as_ref());
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
@@ -643,6 +645,22 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        name_font: looks.font,
+        name_effect: looks.effect,
+        name_color_a: looks.color_a,
+        name_color_b: looks.color_b,
+        decoration: looks.decoration,
+        nameplate: looks.nameplate,
+        tag: message
+            .tag
+            .as_ref()
+            .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+        tag_badge: message
+            .tag
+            .as_ref()
+            .and_then(|tag| tag.badge.as_deref())
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -674,6 +692,28 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         forwarded: message.forwarded,
         has_reply: message.reply.is_some(),
         reply_author: reply_author.into(),
+        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
+        reply_has_color: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.color.is_some()),
+        reply_tag: message
+            .reply
+            .as_ref()
+            .and_then(|reply| reply.tag.as_ref())
+            .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+        reply_tag_badge: message
+            .reply
+            .as_ref()
+            .and_then(|reply| reply.tag.as_ref())
+            .and_then(|tag| tag.badge.as_deref())
+            .unwrap_or_default()
+            .into(),
+        reply_ping: message.reply.as_ref().is_some_and(|reply| reply.ping),
+        reply_attachments: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.attachments),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -715,6 +755,7 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         hidden_card: SharedString::default(),
         delivery: delivery.into(),
         delivery_failed: message.delivery == Delivery::Failed,
+        delivery_quiet,
         can_retry,
         can_cancel,
         can_reply: message.can_reply,

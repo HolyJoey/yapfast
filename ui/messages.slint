@@ -1,17 +1,21 @@
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover, MenuItem, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover, MenuItem, TextField, ServerTag, StyledName, Decoration } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
 /// arrived; until then its glyph is its name.
-export struct EmojiCell { glyph: string, name: string, key: string, picture: image }
+/// `code` is how Discord's picker names it at its foot, such as `:zany_face:`.
+export struct EmojiCell { glyph: string, name: string, key: string, picture: image, code: string }
 /// A heading, or up to a row's worth of emoji, in the emoji picker.
 export struct EmojiRow { heading: string, cells: [EmojiCell] }
 /// A place the emoji picker's sidebar jumps to: the row of its heading, and the
 /// row after its last. Its icon is named by the heading.
-export struct EmojiSection { icon: EmojiCell, row: int, end: int }
+/// `kind` is the category's grey glyph in the sidebar, as Discord's: 0 none
+/// (a server's, shown by its icon), 1 recent, 2 people, 3 nature, 4 food,
+/// 5 activities, 6 travel, 7 objects, 8 symbols, 9 flags.
+export struct EmojiSection { icon: EmojiCell, row: int, end: int, kind: int }
 
 // An emoji at `side`: its picture, its glyph, or, for a custom emoji whose
 // picture hasn't arrived, a quiet square in its place.
@@ -573,6 +577,12 @@ export struct MessageRow {
     color: color, has-color: bool,
     /// The author is a Discord bot or webhook: tagged after their name.
     bot: bool,
+    /// The author's Discord server tag after their name, and its badge.
+    tag: string, tag-badge: string,
+    /// Their Discord display name style (font and effect ids, 0 for none,
+    /// and two colours), avatar decoration and nameplate pictures.
+    name-font: int, name-effect: int, name-color-a: color, name-color-b: color,
+    decoration: string, nameplate: string,
     /// Starts a group: shows the avatar and author. Later messages from the same person follow compactly.
     first: bool,
     /// A date divider above this message, when it starts a new day.
@@ -596,6 +606,11 @@ export struct MessageRow {
     /// Forwarded on Discord: the body, files and embeds are the original's.
     forwarded: bool,
     reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-picture: image, has-reply: bool,
+    /// The quoted author's role colour and server tag; whether the reply
+    /// pinged them, marked with an @; and whether the original has only
+    /// files, which the line offers to show, as Discord's does.
+    reply-color: color, reply-has-color: bool, reply-tag: string, reply-tag-badge: string,
+    reply-ping: bool, reply-attachments: bool,
     /// The original message's item; clicking the reply jumps to it.
     reply-item: string,
     reactions: [ReactionChip],
@@ -614,6 +629,8 @@ export struct MessageRow {
     /// Says a card is hidden, for a message that is only one, with link previews off.
     hidden-card: string,
     delivery: string, delivery-failed: bool, can-retry: bool, can-cancel: bool,
+    /// It's on its way: greyed, without the line saying so.
+    delivery-quiet: bool,
     can-reply: bool, can-edit: bool, can-delete: bool, can-react: bool, can-forward: bool,
     /// Among the conversation's pinned messages, and whether this account
     /// may pin it or unpin it.
@@ -644,9 +661,14 @@ export component EmojiPicker inherits Rectangle {
     callback close-picker;
     /// Inside the picker above the composer, which draws the frame.
     in property <bool> bare;
+    /// The skin tone for emoji that have them, 0 for none to 5, and asking
+    /// for another, as the button beside Discord's search does.
+    in property <int> skin-tone;
+    callback choose-skin-tone(int);
+    property <bool> choosing-tone;
     // Rows are all one height, so a row's place is known before the ListView
     // lays it out, and a jump lands on its heading.
-    property <length> row-height: 40px;
+    property <length> row-height: 48px;
     property <length> scrolled: -grid.content-y;
     function jump(row: int) {
         if root.emoji-query != "" {
@@ -667,12 +689,15 @@ export component EmojiPicker inherits Rectangle {
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
-                padding: 10px; padding-bottom: 6px;
+                padding: 10px; padding-bottom: 8px; spacing: 8px;
                 // The picker's contents are created each time it opens.
                 picker-field := TextField {
                     init => { self.focus-input(); }
-                    min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: "Find an emoji"; label: "Find an emoji"; text <=> root.emoji-query;
+                    min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.chat; ring: false; outlined: true;
+                    icon: @image-url("icons/search.svg");
+                    // As Discord's: the emoji pointed at names itself here.
+                    placeholder: root.emoji-hover.code != "" ? root.emoji-hover.code : "Find the perfect emoji";
+                    label: "Find an emoji"; text <=> root.emoji-query;
                     edited(text) => { root.emoji-search(text); }
                     // Enter picks the first match.
                     accepted => {
@@ -681,22 +706,79 @@ export component EmojiPicker inherits Rectangle {
                         }
                     }
                 }
+                // Discord's skin tone button: the clapping hands in the tone
+                // chosen; clicking it offers the six.
+                if !root.choosing-tone: Rectangle {
+                    width: 36px; height: 36px; border-radius: 8px;
+                    background: tone-touch.has-hover ? Theme.hover : transparent;
+                    accessible-role: button; accessible-label: "Choose a skin tone";
+                    accessible-action-default => { root.choosing-tone = true; }
+                    Text { text: ["👏", "👏🏻", "👏🏼", "👏🏽", "👏🏾", "👏🏿"][root.skin-tone]; font-family: root.emoji-font; font-size: 24px; }
+                    tone-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.choosing-tone = true; } }
+                }
+                if root.choosing-tone: HorizontalLayout {
+                    spacing: 2px;
+                    for tone[index] in ["👏", "👏🏻", "👏🏼", "👏🏽", "👏🏾", "👏🏿"]: Rectangle {
+                        width: 36px; height: 36px; border-radius: 8px;
+                        background: index == root.skin-tone ? Theme.active : pick-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button; accessible-label: "Skin tone " + index;
+                        accessible-action-default => { root.choosing-tone = false; root.choose-skin-tone(index); }
+                        Text { text: tone; font-family: root.emoji-font; font-size: 24px; }
+                        pick-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.choosing-tone = false; root.choose-skin-tone(index); }
+                        }
+                    }
+                }
             }
+            Rectangle { height: 1px; background: Theme.line; }
             HorizontalLayout {
                 vertical-stretch: 1;
                 // The heading in view is marked, unless a search shows matches.
+                // Discord's sidebar: servers' icons, then each category's grey
+                // glyph; a white pill marks the one in view.
                 Rectangle {
-                    width: 48px; background: Theme.panel;
+                    width: 52px; background: Theme.sunken;
                     ListView {
                         for section in root.emoji-sections: HorizontalLayout {
+                            property <bool> current: root.emoji-query == "" && root.scrolled >= (section.row - 0.5) * root.row-height
+                                && root.scrolled < (section.end - 0.5) * root.row-height;
                             alignment: center; padding-top: 4px;
-                            EmojiButton {
-                                emoji: section.icon; font: root.emoji-font; size: 36px; glyph: 24px; tip: false;
-                                verb: "Jump to";
-                                fill: root.emoji-query == "" && root.scrolled >= (section.row - 0.5) * root.row-height
-                                    && root.scrolled < (section.end - 0.5) * root.row-height ? Theme.active : transparent;
-                                hovered => { root.emoji-hover = section.icon; }
-                                clicked => { root.jump(section.row); }
+                            Rectangle {
+                                width: 36px; height: 36px;
+                                if current: Rectangle {
+                                    x: -8px; y: 8px; width: 4px; height: 20px; border-radius: 2px; background: Theme.text;
+                                }
+                                if section.kind == 0: EmojiButton {
+                                    emoji: section.icon; font: root.emoji-font; size: 36px; glyph: 26px; tip: false;
+                                    verb: "Jump to";
+                                    hovered => { root.emoji-hover = section.icon; }
+                                    clicked => { root.jump(section.row); }
+                                }
+                                if section.kind > 0: Rectangle {
+                                    border-radius: 6px;
+                                    background: kind-touch.has-hover ? Theme.hover : transparent;
+                                    accessible-role: button;
+                                    accessible-label: "Jump to " + section.icon.name;
+                                    accessible-action-default => { root.jump(section.row); }
+                                    Image {
+                                        width: 22px; height: 22px;
+                                        source: section.kind == 1 ? @image-url("icons/emoji-recent.svg")
+                                            : section.kind == 2 ? @image-url("icons/emoji-people.svg")
+                                            : section.kind == 3 ? @image-url("icons/emoji-nature.svg")
+                                            : section.kind == 4 ? @image-url("icons/emoji-food.svg")
+                                            : section.kind == 5 ? @image-url("icons/gamepad.svg")
+                                            : section.kind == 6 ? @image-url("icons/emoji-travel.svg")
+                                            : section.kind == 7 ? @image-url("icons/emoji-objects.svg")
+                                            : section.kind == 8 ? @image-url("icons/emoji-symbols.svg")
+                                            : @image-url("icons/emoji-flags.svg");
+                                        colorize: current || kind-touch.has-hover ? Theme.text : Theme.muted;
+                                    }
+                                    kind-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.jump(section.row); }
+                                    }
+                                }
                             }
                         }
                     }
@@ -707,13 +789,13 @@ export component EmojiPicker inherits Rectangle {
                         for row in root.emoji-rows: VerticalLayout {
                             height: root.row-height; padding-left: 8px; padding-right: 8px;
                             if row.heading != "": HorizontalLayout {
-                                padding-left: 4px; padding-bottom: 4px;
-                                Text { text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: bottom; }
+                                padding-left: 4px; padding-bottom: 6px; spacing: 6px; alignment: start;
+                                Text { text: row.heading; color: Theme.secondary; font-size: 14px; font-weight: 600; vertical-alignment: bottom; }
                             }
                             if row.cells.length > 0: HorizontalLayout {
                                 alignment: start;
                                 for cell in row.cells: EmojiButton {
-                                    emoji: cell; font: root.emoji-font; size: 40px; glyph: 26px; tip: false;
+                                    emoji: cell; font: root.emoji-font; size: 48px; glyph: 34px; tip: false;
                                     verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" ? "Insert" : "React with";
                                     hovered => { root.emoji-hover = cell; }
                                     clicked => { root.pick(cell); }
@@ -727,16 +809,16 @@ export component EmojiPicker inherits Rectangle {
                     }
                 }
             }
-            // The hovered emoji, larger, with its name.
+            // The hovered emoji, larger, with its :name:, as Discord's foot.
             Rectangle {
-                height: 48px; background: Theme.panel;
+                height: 48px; background: Theme.sunken;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px; spacing: 10px;
                     if root.emoji-hover.glyph != "": EmojiFace {
-                        emoji: root.emoji-hover; font: root.emoji-font; side: 26px; width: 30px;
+                        emoji: root.emoji-hover; font: root.emoji-font; side: 28px; width: 32px;
                     }
                     Text {
-                        text: root.emoji-hover.glyph != "" ? root.emoji-hover.name
+                        text: root.emoji-hover.glyph != "" ? (root.emoji-hover.code != "" ? root.emoji-hover.code : root.emoji-hover.name)
                             : root.react-item == "yapfast:status" ? "Pick an emoji for your status."
                             : root.react-item == "yapfast:composer" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
                         color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: 15px;
@@ -1024,10 +1106,18 @@ export component ThreadChip inherits HorizontalLayout {
 
 // Discord's tag after a bot's name: white on blurple.
 export component BotTag inherits Rectangle {
-    width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
+    width: tag-row.preferred-width; height: 16px; border-radius: 4px;
     background: #5865f2;
-    accessible-role: text; accessible-label: "Bot";
-    tag-text := Text { text: "BOT"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    accessible-role: text; accessible-label: "App";
+    // Discord's verified-app badge: a tick, then APP.
+    tag-row := HorizontalLayout {
+        padding-left: 4px; padding-right: 4px; spacing: 2px;
+        VerticalLayout {
+            alignment: center;
+            Image { source: @image-url("icons/check.svg"); width: 10px; height: 10px; colorize: #ffffff; }
+        }
+        Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; vertical-alignment: center; }
+    }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its
@@ -1701,6 +1791,9 @@ export component MessageContent inherits VerticalLayout {
                 x: 0px; y: message.has-reply ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
             }
+            if message.first && message.notice == "" && message.decoration != "": Decoration {
+                x: 0px; y: message.has-reply ? 24px : 2px; avatar: 40px; url: message.decoration;
+            }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
             if message.first && message.notice == "" && message.sender != "": TouchArea {
@@ -1733,11 +1826,29 @@ export component MessageContent inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 6px;
                     if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
-                    if message.reply-author != "": Text { text: message.reply-author; color: Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
-                    Text {
+                    // A deleted original: Discord's arrow and words in italics.
+                    if message.reply-author == "" && message.reply-item == "": Middle {
+                        Image { source: @image-url("icons/reply.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+                    }
+                    if message.reply-author != "": Text {
+                        text: (message.reply-ping ? "@" : "") + message.reply-author;
+                        color: message.reply-has-color ? message.reply-color : Theme.secondary;
+                        font-size: 14px; font-weight: 500; vertical-alignment: center;
+                    }
+                    if message.reply-tag != "": Middle { ServerTag { text: message.reply-tag; badge-url: message.reply-tag-badge; font-size: 11px; } }
+                    if message.reply-attachments: Text {
+                        text: "Click to see attachment"; font-size: 14px; font-italic: true; vertical-alignment: center;
+                        color: reply-touch.has-hover ? Theme.text : Theme.secondary;
+                    }
+                    if message.reply-attachments: Middle {
+                        Image { source: @image-url("icons/image.svg"); width: 18px; height: 18px; colorize: Theme.secondary; }
+                    }
+                    if !message.reply-attachments: Text {
                         text: message.reply-body; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                        font-italic: message.reply-author == "" && message.reply-item == "";
                         color: reply-touch.has-hover ? Theme.text : Theme.muted;
                     }
+                    if message.reply-attachments: Rectangle { horizontal-stretch: 1; }
                 }
                 reply-touch := TouchArea {
                     enabled: message.reply-item != "";
@@ -1750,9 +1861,18 @@ export component MessageContent inherits VerticalLayout {
                 Rectangle {
                     min-width: author-name.min-width; preferred-width: author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
-                    author-name := StyledText {
+                    // The name as selectable text, unseen behind the one shown,
+                    // so a selection across messages copies who wrote each.
+                    StyledText {
                         width: parent.width; height: parent.height;
-                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                        text: message.author-styled; default-color: transparent; link-color: transparent;
+                        default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                    author-name := StyledName {
+                        width: parent.width; height: parent.height;
+                        text: message.author; plain: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500; overflow: elide; vertical-alignment: center;
+                        font-id: message.name-font; effect: message.name-effect; color-a: message.name-color-a; color-b: message.name-color-b;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {
@@ -1770,6 +1890,7 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
+                if message.tag != "": Middle { ServerTag { text: message.tag; badge-url: message.tag-badge; } }
                 if message.bot: Middle { BotTag { } }
                 StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - 3px; max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
@@ -1846,7 +1967,9 @@ export component MessageContent inherits VerticalLayout {
                     clicked => { root.react(message.item, reaction.key); }
                 }
             }
-            if message.delivery != "": HorizontalLayout {
+            // As Discord's: a message on its way shows greyed, with no word
+            // about it; only one held back or refused says so, with its choices.
+            if message.delivery != "" && !message.delivery-quiet: HorizontalLayout {
                 spacing: 4px; alignment: start;
                 Text { text: message.delivery; color: message.delivery-failed ? Theme.danger : Theme.muted; font-size: 13px; vertical-alignment: center; wrap: word-wrap; }
                 if message.can-retry: ActionButton { text: "Retry"; ghost: true; small: true; clicked => { root.retry(message.item); } }

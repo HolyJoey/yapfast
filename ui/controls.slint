@@ -100,6 +100,12 @@ export component IconButton inherits Rectangle {
     in property <int> tip-side: 0;
     in property <length> radius: 6px;
     out property <bool> hovered: pointer.has-hover;
+    /// Emoji shown in place of the glyph while pointed at, a different one
+    /// each time, as Discord's emoji button does.
+    in property <[string]> hover-faces;
+    property <int> turn;
+    changed hovered => { if self.hovered { root.turn = Math.mod(root.turn + 1, max(1, root.hover-faces.length)); } }
+    property <bool> showing-face: root.hover-faces.length > 0 && pointer.has-hover && root.enabled;
     callback clicked;
     // The root fills its row; the visible face stays square and centred.
     width: root.size; min-height: root.size;
@@ -118,7 +124,11 @@ export component IconButton inherits Rectangle {
         animate background { duration: Theme.quick; }
         border-width: focus.has-focus ? 2px : 0px;
         border-color: Theme.accent;
-        Image {
+        if root.showing-face: Text {
+            text: root.hover-faces[root.turn]; font-size: root.glyph - 2px;
+            horizontal-alignment: center; vertical-alignment: center;
+        }
+        if !root.showing-face: Image {
             source: root.icon; width: root.glyph; height: root.glyph;
             colorize: !root.enabled ? Theme.faint : root.emphasis ? Theme.on-accent
                 : root.alert || (root.danger && pointer.has-hover) ? Theme.danger
@@ -347,24 +357,34 @@ export component TextField inherits Rectangle {
     in property <length> pad: 12px;
     in property <color> fill: Theme.sunken;
     in property <bool> ring: true;
+    /// A 1px edge even without the keys, as Discord's search fields have.
+    in property <bool> outlined;
+    /// A glyph before the text, such as a magnifier.
+    in property <image> icon;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
     callback edited(string);
     callback accepted;
     public function focus-input() { input.focus(); }
+    property <length> lead: root.icon.width > 0 ? root.pad + root.text-size + 8px : root.pad;
     min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
-    border-radius: 6px;
+    border-radius: root.outlined ? 8px : 6px;
     background: root.fill;
-    border-width: root.ring && input.has-focus ? 1px : 0px;
-    border-color: Theme.accent.with-alpha(0.8);
+    border-width: root.ring && input.has-focus ? 1px : root.outlined ? 1px : 0px;
+    border-color: root.ring && input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
+    if root.icon.width > 0: Image {
+        x: root.pad; y: (root.height - self.height) / 2;
+        width: root.text-size; height: root.text-size;
+        source: root.icon; colorize: Theme.secondary;
+    }
     Text {
-        x: root.pad; width: root.width - 2 * root.pad; height: root.height;
+        x: root.lead; width: root.width - root.lead - root.pad; height: root.height;
         visible: root.text == "";
         text: root.placeholder; color: root.enabled ? Theme.muted : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; overflow: elide;
     }
     Rectangle {
-        x: root.pad; width: root.width - 2 * root.pad; height: root.height; clip: true;
+        x: root.lead; width: root.width - root.lead - root.pad; height: root.height; clip: true;
         input := TextInput {
             property <length> scroll: 0px;
             x: min(0px, max(parent.width - self.width, self.scroll));
@@ -1084,5 +1104,123 @@ export component SensitivitySlider inherits Rectangle {
             if event.text == Key.RightArrow || event.text == Key.UpArrow { root.step(1); return accept; }
             return reject;
         }
+    }
+}
+
+// A Discord server tag after a name, as Discord draws it: the server's badge,
+// then up to four letters, on a faint pill.
+export component ServerTag inherits Rectangle {
+    in property <string> text;
+    in property <string> badge-url;
+    in property <length> font-size: 12px;
+    property <image> badge: root.badge-url != "" ? PictureStore.picture(root.badge-url, PictureStore.revision) : @image-url("");
+    function request-badge() {
+        if root.badge-url != "" && root.badge.width == 0 {
+            PictureStore.request(root.badge-url);
+        }
+    }
+    init => { root.request-badge(); }
+    changed badge-url => { root.request-badge(); }
+    horizontal-stretch: 0;
+    width: tag-row.preferred-width; height: root.font-size + 6px;
+    border-radius: 4px;
+    background: Theme.overlay.with-alpha(0.08);
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Server tag " + root.text;
+    tag-row := HorizontalLayout {
+        padding-left: 4px; padding-right: 4px; spacing: 3px;
+        if root.badge-url != "": VerticalLayout {
+            alignment: center;
+            Image { source: root.badge; width: root.font-size; height: root.font-size; image-fit: contain; }
+        }
+        Text {
+            text: root.text; color: Theme.text; font-size: root.font-size; font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Discord's display name style fonts, by its font ids; empty for gg sans,
+// as for a style Yapfast has no font for.
+// Whether names show their Discord fonts and colours, avatars their
+// decorations and rows their nameplates; Settings › Advanced turns them off.
+export global Looks {
+    in-out property <bool> shown: true;
+}
+
+export global NameFonts {
+    pure public function family(id: int) -> string {
+        if id == 3 { return "Cherry Bomb One"; }
+        if id == 4 { return "Jellybean"; }
+        if id == 6 { return "MuseoModerno SemiBold"; }
+        if id == 8 { return "Pixelify Sans SemiBold"; }
+        if id == 12 { return "Zilla Slab SemiBold"; }
+        if id == 13 { return "Playpen Sans SemiBold"; }
+        if id == 14 { return "Mainframe SemiBold"; }
+        if id == 15 { return "Headbang"; }
+        if id == 16 { return "Kalam"; }
+        ""
+    }
+}
+
+// A name as Discord shows it with someone's display name style: its font,
+// and its colour, or a gradient between two for the effects that blend.
+// Without a style, it's plain text in `plain`.
+export component StyledName inherits Text {
+    /// Discord's font and effect ids, 0 for none, and the style's colours.
+    in property <int> font-id;
+    in property <int> effect;
+    in property <color> color-a;
+    in property <color> color-b;
+    in property <brush> plain: Theme.text;
+    property <string> family: Looks.shown ? NameFonts.family(root.font-id) : "";
+    font-family: root.family;
+    color: root.effect == 0 || !Looks.shown ? root.plain
+        : root.effect == 1 || root.color-b == root.color-a ? root.color-a
+        : @linear-gradient(90deg, root.color-a 0%, root.color-b 100%);
+}
+
+// An avatar decoration, as Discord draws it: its picture over the avatar,
+// a fifth larger and centred on it. Put it after the avatar, at the same
+// place and size.
+export component Decoration inherits Rectangle {
+    in property <string> url;
+    property <string> shown: Looks.shown ? root.url : "";
+    in property <length> avatar;
+    property <image> picture: root.shown != "" ? PictureStore.picture(root.shown, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.shown != "" && root.picture.width == 0 {
+            PictureStore.request(root.shown);
+        }
+    }
+    init => { root.request(); }
+    changed shown => { root.request(); }
+    width: root.avatar; height: root.avatar;
+    if root.shown != "": Image {
+        x: -root.avatar * 0.1; y: -root.avatar * 0.1;
+        width: root.avatar * 1.2; height: root.avatar * 1.2;
+        source: root.picture; image-fit: contain;
+        accessible-role: none;
+    }
+}
+
+// A nameplate behind a row, as Discord's lists draw it: its picture across
+// the row, under the name.
+export component Nameplate inherits Rectangle {
+    in property <string> url;
+    property <string> shown: Looks.shown ? root.url : "";
+    property <image> picture: root.shown != "" ? PictureStore.picture(root.shown, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.shown != "" && root.picture.width == 0 {
+            PictureStore.request(root.shown);
+        }
+    }
+    init => { root.request(); }
+    changed shown => { root.request(); }
+    border-radius: 6px; clip: true;
+    if root.shown != "": Image {
+        width: root.width; height: root.height;
+        source: root.picture; image-fit: cover;
+        accessible-role: none;
     }
 }

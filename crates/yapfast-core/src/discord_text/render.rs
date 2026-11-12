@@ -689,6 +689,8 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::name_tag(member.tag),
+        bot: member.bot,
     }
 }
 

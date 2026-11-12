@@ -205,6 +205,10 @@ impl Icons {
             self.voice.clone()
         } else if room.forum {
             self.forum.clone()
+        } else if room.rules {
+            self.rules.clone()
+        } else if room.announcement {
+            self.announcement.clone()
         } else if room.direct {
             self.dm.clone()
         } else if room.parent.is_some() {
@@ -289,6 +293,7 @@ impl Adapter {
             window.set_recovery(SharedString::default());
             window.set_settings_open(false);
         }
+        self.history.note(&self.app.state, window);
         self.show_workspace(window);
         self.show_sidebar(window);
         self.show_account(window);
@@ -490,6 +495,19 @@ impl Adapter {
             }
             _ => SharedString::default(),
         });
+        let server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_server_icon(
+            server
+                .and_then(|server| server.icon.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_server_initial(
+            server.map_or_else(SharedString::default, |server| initial(&server.name)),
+        );
         window.set_header_invite(match &state.navigation {
             Navigation::Server(id) => self.app.header_choices(id).contains(&MenuChoice::Invite),
             Navigation::DirectMessages => false,
@@ -544,8 +562,10 @@ impl Adapter {
             .iter()
             .filter(|friend| friend.name.to_lowercase().contains(friend_query.trim()))
             .map(|friend| {
-                let (activity, activity_emoji) = activity_line(friend.activity.as_deref());
+                let (game, rest) = game_and_status(friend.activity.as_deref(), &friend.activities);
+                let (activity, activity_emoji) = activity_line(rest.as_deref());
                 let voice = in_voice.get(friend.id.as_str());
+                let looks = row_looks(friend.tag.as_ref());
                 FriendRow {
                     id: friend.id.as_str().into(),
                     name: friend.name.as_str().into(),
@@ -557,6 +577,23 @@ impl Adapter {
                         .into(),
                     activity,
                     activity_emoji,
+                    game,
+                    name_font: looks.font,
+                    name_effect: looks.effect,
+                    name_color_a: looks.color_a,
+                    name_color_b: looks.color_b,
+                    decoration: looks.decoration,
+                    nameplate: looks.nameplate,
+                    tag: friend
+                        .tag
+                        .as_ref()
+                        .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+                    tag_badge: friend
+                        .tag
+                        .as_ref()
+                        .and_then(|tag| tag.badge.as_deref())
+                        .unwrap_or_default()
+                        .into(),
                     voice_room: voice.map_or("", |place| place.room).into(),
                     voice_channel: voice.map_or("", |place| place.channel).into(),
                     voice_server: voice.map_or("", |place| place.server).into(),
@@ -569,6 +606,10 @@ impl Adapter {
             .cloned()
             .collect();
         update_model(&self.models.friends_online, around);
+        update_model(
+            &self.models.friends_active,
+            active_now_rows(&state.friends, &in_voice),
+        );
         update_model(&self.models.friends, friend_rows);
         window.set_friend_count(i32::try_from(state.friends.len()).unwrap_or(i32::MAX));
         // Those blocked, for Settings.
@@ -665,7 +706,7 @@ impl Adapter {
                     let this = (room.category_id.as_deref(), room.category.as_str());
                     if category.replace(this) != Some(this) {
                         folds_by = room.category_id.as_deref();
-                        room.category.to_uppercase()
+                        room.category.clone()
                     } else {
                         String::new()
                     }
@@ -700,6 +741,8 @@ impl Adapter {
                     tint: tint(&room.id),
                     picture: slint::Image::default(),
                     picture_url: room.avatar.as_deref().unwrap_or_default().into(),
+                    face_a: room.faces.first().map_or("", String::as_str).into(),
+                    face_b: room.faces.get(1).map_or("", String::as_str).into(),
                     discord: room.direct && room.network == Network::Discord,
                     locked: room.locked || room.join_locked,
                     person: room.person.is_some(),
@@ -1502,7 +1545,17 @@ impl Adapter {
                 .iter()
                 .enumerate()
                 .map(|(index, member)| {
-                    let (activity, activity_emoji) = activity_line(member.activity.as_deref());
+                    // Discord's member list shows a custom status, else the
+                    // game after a controller.
+                    let (game, rest) =
+                        game_and_status(member.activity.as_deref(), &member.activities);
+                    let playing = rest.is_none() && !game.is_empty();
+                    let looks = row_looks(member.tag.as_ref());
+                    let (activity, activity_emoji) = if playing {
+                        (game, SharedString::default())
+                    } else {
+                        activity_line(rest.as_deref())
+                    };
                     MemberRow {
                         id: member.id.clone().into(),
                         name: member.name.clone().into(),
@@ -1517,10 +1570,28 @@ impl Adapter {
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
+                        playing,
+                        name_font: looks.font,
+                        name_effect: looks.effect,
+                        name_color_a: looks.color_a,
+                        name_color_b: looks.color_b,
+                        decoration: looks.decoration,
+                        nameplate: looks.nameplate,
+                        tag: member
+                            .tag
+                            .as_ref()
+                            .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+                        tag_badge: member
+                            .tag
+                            .as_ref()
+                            .and_then(|tag| tag.badge.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        bot: member.bot,
                         // Discord names its groups; Matrix members group by role.
                         heading: if let Some(group) = &member.group {
                             if index == 0 || members[index - 1].group.as_ref() != Some(group) {
-                                group.to_uppercase().into()
+                                group.as_str().into()
                             } else {
                                 SharedString::default()
                             }
@@ -4128,7 +4199,7 @@ pub(super) fn with_empty_categories(
     // Its id names the category, for the heading's menu.
     let heading = |category: &ListedCategory| RoomRow {
         id: category.id.as_str().into(),
-        heading: category.name.to_uppercase().into(),
+        heading: category.name.as_str().into(),
         category: category.id.as_str().into(),
         hidden: true,
         ..Default::default()
@@ -4652,6 +4723,7 @@ fn sound_rows(
                             sound.emoji.as_str().into()
                         },
                         name: sound.name.as_str().into(),
+                        code: SharedString::new(),
                         key: SharedString::new(),
                         picture: cached_picture(pictures, state, sound.picture.as_deref()),
                     },

@@ -13,3 +13,9 @@ aren't here. To try it, download the static TTF styles Regular, Italic, Medium,
 Bold, Bold Italic and Black from Fontshare
 (https://www.fontshare.com/fonts/satoshi) into this folder, and follow the
 comment at the top of `ui/yapfast.slint`.
+
+The Discord build draws gg sans, Discord's typeface, instead once it's
+downloaded. Its licence doesn't allow redistributing it, so it isn't here:
+Yapfast downloads it from Discord on its first start; see
+`crates/yapfast-discord/src/ui_font.rs`. `styles/` holds the fonts of
+Discord's display name styles.

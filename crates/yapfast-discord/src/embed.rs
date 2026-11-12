@@ -385,7 +385,7 @@ mod tests {
         let picture = &parsed.pictures[0];
         assert_eq!(
             picture.preview_url.as_deref(),
-            Some(format!("{proxy}?animated=true&format=webp&width=312&height=270").as_str())
+            Some(format!("{proxy}?animated=true&format=webp&width=400&height=346").as_str())
         );
         assert!(
             picture

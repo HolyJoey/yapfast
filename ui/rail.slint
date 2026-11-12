@@ -40,6 +40,9 @@ export struct RoomRow {
     /// A DM's avatar or group icon, and whether it's a Discord DM.
     picture: image, discord: bool,
     picture-url: string,
+    /// A group DM without an icon: two of its people's avatars, shown one
+    /// over the other in its place, as in Discord.
+    face-a: string, face-b: string,
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
@@ -339,7 +342,7 @@ export component StatusDot inherits Rectangle {
     accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
     if !root.mobile: Rectangle {
         width: 10px; height: 10px; border-radius: 5px;
-        background: root.presence == "dnd" ? Theme.danger : root.presence == "idle" ? Theme.accent : root.presence == "online" ? Theme.live : Theme.faint;
+        background: root.presence == "dnd" ? Theme.danger : root.presence == "idle" ? #f0b232 : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
         width: 4px; height: 4px; border-radius: 2px; background: root.ring;
@@ -367,6 +370,8 @@ export component ChannelRow inherits Rectangle {
     in property <string> text;
     in property <string> label: root.text;
     in property <image> icon;
+    in property <string> face-a;
+    in property <string> face-b;
     in property <bool> person;
     in property <string> initial;
     in property <color> tint;
@@ -397,6 +402,10 @@ export component ChannelRow inherits Rectangle {
     /// A Discord thread, which the line from its channel marks in place of an icon.
     in property <bool> thread;
     /// A voice channel with a chat, which a button on the row opens.
+    /// A server channel this account may invite to: Discord's invite
+    /// button shows on it while pointed at or open.
+    in property <bool> can-invite;
+    callback invite;
     in property <bool> chat;
     /// It may be dragged: once the pointer has moved a few pixels with the
     /// button down, `start-drag` asks whether it may, given how far down
@@ -485,7 +494,19 @@ export component ChannelRow inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
-                if root.person: Middle {
+                // A group without an icon: two of its people, one over the other.
+                if root.person && root.face-a != "": Middle {
+                    Rectangle {
+                        width: 32px; height: 32px;
+                        Avatar { x: 0px; y: 0px; size: 22px; initial: root.initial; tint: root.tint; picture-url: root.face-a; }
+                        Rectangle {
+                            x: 10px; y: 10px; width: 22px; height: 22px; border-radius: 11px;
+                            background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
+                            Avatar { size: 18px; initial: root.initial; tint: root.tint; picture-url: root.face-b != "" ? root.face-b : root.face-a; }
+                        }
+                    }
+                }
+                if root.person && root.face-a == "": Middle {
                     Avatar {
                         size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
                         if root.discord: DiscordBadge {
@@ -534,6 +555,34 @@ export component ChannelRow inherits Rectangle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
                         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
+                    }
+                }
+                // Discord's "Create Invite", on the channel pointed at or open.
+                if root.can-invite && (pointer.has-hover || root.selected): Middle {
+                    Rectangle {
+                        width: 24px; height: 24px; border-radius: 6px;
+                        background: invite-pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
+                        accessible-role: button;
+                        accessible-label: "Create Invite";
+                        accessible-action-default => { root.invite(); }
+                        invite-icon := Image {
+                            source: @image-url("icons/user-plus.svg"); width: 16px; height: 16px;
+                            colorize: invite-pointer.has-hover ? Theme.text : Theme.secondary;
+                        }
+                        invite-pointer := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { Tip.text = ""; root.invite(); }
+                            changed has-hover => {
+                                if self.has-hover {
+                                    Tip.text = "Create Invite";
+                                    Tip.side = 0;
+                                    Tip.x = invite-icon.absolute-position.x + invite-icon.width / 2;
+                                    Tip.y = invite-icon.absolute-position.y;
+                                } else if Tip.text == "Create Invite" {
+                                    Tip.text = "";
+                                }
+                            }
+                        }
                     }
                 }
                 // A voice channel's chat opens without joining it, from a
@@ -600,15 +649,19 @@ component CategoryHeading inherits Rectangle {
     accessible-action-default => { root.toggled(); }
     forward-focus: focus;
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
+    // As Discord's: the name, then the chevron, which turns while collapsed.
     HorizontalLayout {
-        padding-left: 2px; spacing: 2px;
-        Image {
-            source: root.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-            width: 12px; image-fit: contain; colorize: root.ink;
-        }
+        padding-left: 8px; spacing: 4px; alignment: start;
         Text {
-            text: root.text; color: root.ink; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
-            vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            text: root.text; color: root.ink; font-size: 14px; font-weight: 500;
+            vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
+        }
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
+                width: 12px; height: 12px; image-fit: contain; colorize: root.ink;
+            }
         }
     }
     focus := FocusScope {
@@ -663,6 +716,9 @@ component CategoryHeading inherits Rectangle {
 // open. The Menu key or Shift+F10 opens it too.
 export component ServerHeader inherits Rectangle {
     in property <string> name;
+    /// The server's icon's address, shown before its name as in Discord.
+    in property <string> icon-url;
+    in property <string> initial;
     in property <bool> open;
     callback clicked;
     border-radius: 6px;
@@ -681,6 +737,13 @@ export component ServerHeader inherits Rectangle {
     }
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
+        if root.icon-url != "" || root.initial != "": VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px; height: 20px; border-radius: 6px; clip: true;
+                Avatar { size: 20px; initial: root.initial; picture-url: root.icon-url; }
+            }
+        }
         Text {
             text: root.name; font-size: 16px; font-weight: 700; color: Theme.text;
             vertical-alignment: center; overflow: elide;
@@ -795,27 +858,40 @@ export component ServerRail inherits Rectangle {
 
 // The sidebar's conversations: on the DM home, the friends list and requests
 // first; then each room, with who is in its voice channel under it.
-// The friends list, and friend requests, message requests and spam, which
-// open on their own screens, at the top of the DM list.
+// The friends list at the top of the DM list, as Discord's, with requests
+// waiting counted on it; they open from its Pending tab. Then the DMs'
+// heading, whose ＋ starts a new one.
 component DmScreenLinks inherits VerticalLayout {
     in property <bool> friends-open;
     in property <bool> requests-current;
     in property <string> requests-badge;
     callback open-friends;
     callback open-requests;
-    padding-top: 6px; padding-bottom: 6px; spacing: 2px;
+    callback new-dm;
+    padding-top: 8px; spacing: 2px;
     ChannelRow {
         text: "Friends";
+        label: "Friends" + (root.requests-badge != "" ? ", " + root.requests-badge + " requests waiting" : "");
         icon: @image-url("icons/users.svg");
-        selected: root.friends-open;
+        selected: root.friends-open || root.requests-current; badge: root.requests-badge;
         clicked => { root.open-friends(); }
     }
-    ChannelRow {
-        text: "Requests";
-        label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
-        icon: @image-url("icons/inbox.svg");
-        selected: root.requests-current; badge: root.requests-badge;
-        clicked => { root.open-requests(); }
+    Rectangle { height: 8px; }
+    Rectangle { height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        padding-left: 8px; padding-right: 4px; padding-top: 12px; padding-bottom: 4px;
+        Text {
+            text: "Direct Messages"; color: heading-touch.has-hover ? Theme.text : Theme.secondary;
+            font-size: 14px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1;
+            heading-touch := TouchArea { }
+        }
+        plus := Rectangle {
+            width: 18px; height: 18px;
+            accessible-role: button; accessible-label: "Create DM";
+            accessible-action-default => { root.new-dm(); }
+            Image { source: @image-url("icons/plus.svg"); width: 16px; height: 16px; colorize: plus-touch.has-hover ? Theme.text : Theme.secondary; }
+            plus-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.new-dm(); } }
+        }
     }
 }
 
@@ -855,6 +931,10 @@ export component RoomList inherits Rectangle {
     callback open-chat(string);
     callback open-friends;
     callback open-requests;
+    /// Channels here may be invited to, from each one's invite button.
+    in property <bool> can-invite;
+    callback invite(string);
+    callback new-dm;
     /// A Community server's list opens Browse Channels, which is on screen
     /// while `browsing`.
     in property <bool> browse-offered;
@@ -947,6 +1027,7 @@ export component RoomList inherits Rectangle {
                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                 open-friends => { root.open-friends(); }
                 open-requests => { root.open-requests(); }
+                new-dm => { root.new-dm(); }
             }
             if root.browse-offered: BrowseLink {
                 browsing: root.browsing;
@@ -965,6 +1046,7 @@ export component RoomList inherits Rectangle {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
+                    new-dm => { root.new-dm(); }
                 }
                 if index == 0 && root.browse-offered: BrowseLink {
                     browsing: root.browsing;
@@ -1042,7 +1124,10 @@ export component RoomList inherits Rectangle {
                     icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
                     chat: room.chat;
                     open-chat => { root.open-chat(room.id); }
+                    can-invite: root.can-invite && !room.direct && !room.locked;
+                    invite => { root.invite(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
+                    face-a: room.face-a; face-b: room.face-b;
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;
                     call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;
                     voice-channel: room.voice-channel; voice-server: room.voice-server;

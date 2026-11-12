@@ -1343,6 +1343,34 @@ impl OpenChannel {
         });
     }
 
+    /// The line a message on its way shows for the one it replies to, by id,
+    /// once that's loaded: its author as on their own messages, and its
+    /// words or, with only files, an offer to see them.
+    fn pending_reply(
+        &self,
+        discord: &Discord,
+        server: Option<&MarkedServer>,
+        id: &str,
+    ) -> Option<Reply> {
+        let original = self.message(id.parse().unwrap_or_default())?;
+        let author = &original.author_id;
+        let server = server.map(|server| &*server.server);
+        Some(Reply {
+            author: discord
+                .name(&self.guild, author)
+                .unwrap_or_else(|| original.author.clone()),
+            avatar: Some(discord.avatar(Some(&self.guild), author)),
+            color: server.and_then(|server| discord.color(server, author)),
+            tag: crate::discord::name_tag(discord.tag(author)),
+            attachments: original.content.is_empty() && !original.attachments.is_empty(),
+            ping: true,
+            body: plain_snippet(&crate::spoiler::hide(
+                &discord.render(server, &original.content),
+            )),
+            item: Some(format!("d:{id}")),
+        })
+    }
+
     /// The channel as Yapfast's timeline. Starts downloading image previews it
     /// lacks. Messages that didn't change since the last time come from
     /// [`OpenChannel::rendered`].
@@ -1450,17 +1478,10 @@ impl OpenChannel {
                 } else {
                     Delivery::Sending
                 },
-                reply: pending.reply.as_ref().and_then(|id| {
-                    let original = self.message(id.parse().unwrap_or_default())?;
-                    Some(Reply {
-                        author: name(&original.author_id, &original.author),
-                        avatar: Some(discord.avatar(Some(&self.guild), &original.author_id)),
-                        body: plain_snippet(&crate::spoiler::hide(
-                            &discord.render(server.map(|server| &**server), &original.content),
-                        )),
-                        item: Some(format!("d:{id}")),
-                    })
-                }),
+                reply: pending
+                    .reply
+                    .as_ref()
+                    .and_then(|id| self.pending_reply(discord, server, id)),
                 attachments: pending
                     .files
                     .iter()
@@ -1584,16 +1605,25 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
+                attachments,
             } => Reply {
                 author: name(author_id, author),
                 avatar: Some(discord.avatar(Some(&self.guild), author_id)),
+                color: server.and_then(|server| discord.color(server, author_id)),
+                tag: crate::discord::name_tag(discord.tag(author_id)),
+                attachments: content.is_empty() && *attachments,
+                ping: message.mentions.contains(author_id),
                 body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
                 item: Some(format!("d:{id}")),
             },
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
-                body: "The original message was deleted.".into(),
+                color: None,
+                tag: None,
+                attachments: false,
+                ping: false,
+                body: "Original message was deleted".into(),
                 item: None,
             },
         });
@@ -1607,6 +1637,7 @@ impl OpenChannel {
             spoilers: true,
             avatar: Some(discord.avatar(Some(&self.guild), &message.author_id)),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
+            tag: crate::discord::name_tag(discord.tag(&message.author_id)),
             bot: message.bot,
             forwarded: message.forwarded,
             body,

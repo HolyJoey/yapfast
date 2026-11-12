@@ -46,6 +46,7 @@ pub mod soundboard;
 pub mod stream;
 pub mod stream_connection;
 pub mod token;
+pub mod ui_font;
 pub mod unread;
 pub mod voice;
 mod voice_connection;

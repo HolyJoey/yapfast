@@ -42,8 +42,8 @@ pub fn family() -> &'static str {
     })
 }
 
-/// Emoji per row of the picker's grid.
-const COLUMNS: usize = 8;
+/// Emoji per row of the picker's grid, as in Discord's.
+const COLUMNS: usize = 9;
 
 /// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode
 /// 15.0; newer emoji would show as empty boxes.
@@ -60,6 +60,7 @@ pub fn cell(key: &str) -> EmojiCell {
     {
         let name = format!(":{name}:");
         return EmojiCell {
+            code: name.clone().into(),
             glyph: custom_emoji::glyph(id)
                 .map_or_else(|| name.clone(), String::from)
                 .into(),
@@ -71,6 +72,7 @@ pub fn cell(key: &str) -> EmojiCell {
     let name = emojis::get(key).map_or(key, emojis::Emoji::name);
     let mut chars = name.chars();
     EmojiCell {
+        code: shortcode(key).into(),
         glyph: key.into(),
         name: chars
             .next()
@@ -216,9 +218,30 @@ pub fn rows(
     frequent: &[String],
     custom: &[EmojiSet],
     server_icon: impl Fn(&EmojiSet) -> Option<slint::Image>,
+    skin_tone: u8,
 ) -> (Vec<EmojiRow>, Vec<EmojiSection>) {
     let query = query.trim().trim_matches(':').to_lowercase();
-    let available = || emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST);
+    // Each emoji in the skin tone chosen, where it has one, as Discord's
+    // picker shows them; the others' tones stay out of the grid.
+    let tone = skin_tones()[usize::from(skin_tone.min(5))];
+    let toned = move |emoji: &'static emojis::Emoji| -> String {
+        match emoji.skin_tone() {
+            Some(_) if tone != emojis::SkinTone::Default => emoji
+                .with_skin_tone(tone)
+                .unwrap_or(emoji)
+                .as_str()
+                .to_owned(),
+            _ => emoji.as_str().to_owned(),
+        }
+    };
+    let available = || {
+        emojis::iter().filter(|emoji| {
+            emoji.unicode_version() <= NEWEST
+                && emoji
+                    .skin_tone()
+                    .is_none_or(|tone| tone == emojis::SkinTone::Default)
+        })
+    };
     let custom_keys: Vec<Vec<String>> = custom
         .iter()
         .map(|set| {
@@ -231,21 +254,23 @@ pub fn rows(
         .collect();
     let mut rows = Vec::new();
     let mut sections = Vec::new();
-    // A section under a heading of its icon's name, or the matches, under none.
-    let mut section = |icon: Option<EmojiCell>, glyphs: Vec<String>| {
+    // A section under a heading of its icon's name, with the sidebar's glyph
+    // of its kind, or the matches, under none.
+    let mut section = |icon: Option<EmojiCell>, kind: i32, glyphs: Vec<String>| {
         if glyphs.is_empty() {
             return;
         }
         if let Some(icon) = icon {
             let row = rows.len();
             rows.push(EmojiRow {
-                heading: icon.name.to_uppercase().into(),
+                heading: icon.name.clone(),
                 cells: ModelRc::default(),
             });
             sections.push(EmojiSection {
                 row: row as i32,
                 end: (row + 1 + glyphs.len().div_ceil(COLUMNS)) as i32,
                 icon,
+                kind,
             });
         }
         for chunk in glyphs.chunks(COLUMNS) {
@@ -264,6 +289,7 @@ pub fn rows(
     if !query.is_empty() {
         section(
             None,
+            0,
             custom_keys
                 .iter()
                 .flatten()
@@ -274,13 +300,13 @@ pub fn rows(
                             emoji.name().contains(&query)
                                 || emoji.shortcodes().any(|code| code.contains(&query))
                         })
-                        .map(|emoji| emoji.as_str().to_owned()),
+                        .map(toned),
                 )
                 .collect(),
         );
         return (rows, sections);
     }
-    section(Some(titled("🕒", "Frequently used")), frequent.to_vec());
+    section(Some(titled("🕒", "Frequently Used")), 1, frequent.to_vec());
     for (set, keys) in custom.iter().zip(custom_keys) {
         let Some(first) = keys.first() else { continue };
         let first = cell(first);
@@ -289,30 +315,51 @@ pub fn rows(
             picture: server_icon(set).unwrap_or(first.picture.clone()),
             ..first
         };
-        section(Some(icon), keys);
+        section(Some(icon), 0, keys);
     }
-    for group in emojis::Group::iter() {
-        let (glyph, name) = match group {
-            emojis::Group::SmileysAndEmotion => ("😀", "Smileys & emotion"),
-            emojis::Group::PeopleAndBody => ("👋", "People & body"),
-            emojis::Group::AnimalsAndNature => ("🐻", "Animals & nature"),
-            emojis::Group::FoodAndDrink => ("🍔", "Food & drink"),
-            emojis::Group::TravelAndPlaces => ("✈️", "Travel & places"),
-            emojis::Group::Activities => ("⚽", "Activities"),
-            emojis::Group::Objects => ("💡", "Objects"),
-            emojis::Group::Symbols => ("🔣", "Symbols"),
-            emojis::Group::Flags => ("🏁", "Flags"),
-        };
-        section(
-            Some(titled(glyph, name)),
-            group
-                .emojis()
-                .filter(|emoji| emoji.unicode_version() <= NEWEST)
-                .map(|emoji| emoji.as_str().to_owned())
-                .collect(),
-        );
+    // Discord's categories, in its order: smileys and people make one.
+    let of = |groups: &[emojis::Group]| -> Vec<String> {
+        groups
+            .iter()
+            .flat_map(|group| group.emojis())
+            .filter(|emoji| emoji.unicode_version() <= NEWEST)
+            .map(toned)
+            .collect()
+    };
+    use emojis::Group;
+    let categories: [(&str, &str, i32, &[Group]); 8] = [
+        (
+            "😀",
+            "People",
+            2,
+            &[Group::SmileysAndEmotion, Group::PeopleAndBody],
+        ),
+        ("🐻", "Nature", 3, &[Group::AnimalsAndNature]),
+        ("🍔", "Food", 4, &[Group::FoodAndDrink]),
+        ("⚽", "Activities", 5, &[Group::Activities]),
+        ("✈️", "Travel", 6, &[Group::TravelAndPlaces]),
+        ("💡", "Objects", 7, &[Group::Objects]),
+        ("🔣", "Symbols", 8, &[Group::Symbols]),
+        ("🏁", "Flags", 9, &[Group::Flags]),
+    ];
+    for (glyph, name, kind, groups) in categories {
+        section(Some(titled(glyph, name)), kind, of(groups));
     }
     (rows, sections)
+}
+
+/// The skin tones the picker offers, by the number Discord's button keeps:
+/// none, then light to dark.
+fn skin_tones() -> [emojis::SkinTone; 6] {
+    use emojis::SkinTone;
+    [
+        SkinTone::Default,
+        SkinTone::Light,
+        SkinTone::MediumLight,
+        SkinTone::Medium,
+        SkinTone::MediumDark,
+        SkinTone::Dark,
+    ]
 }
 
 /// The fonts every Windows 10 and 11 has for what Segoe UI and Arial, its
@@ -362,8 +409,9 @@ fn register_color_font() -> bool {
         .filter(|name| name.to_lowercase().contains("emoji"))
         .map(str::to_owned)
         .collect();
-    // Noto Color Emoji first, as the font Yapfast is designed and tested with.
-    names.sort_by_key(|name| name != "Noto Color Emoji");
+    // Twemoji first, as Discord draws its emoji; then Noto Color
+    // Emoji, as the font Yapfast is designed and tested with.
+    names.sort_by_key(|name| (name != "Twemoji", name != "Noto Color Emoji"));
     let mut layered = None;
     for name in &names {
         let Some(family) = collection.family_by_name(name) else {
@@ -511,7 +559,7 @@ mod tests {
                 picture: String::new(),
             }],
         }];
-        let (rows, sections) = rows("", &[], &custom, |_| None);
+        let (rows, sections) = rows("", &[], &custom, |_| None, 0);
         let model = VecModel::from(rows);
         let sections = VecModel::from(sections);
         let cells = model.row_data(1).unwrap().cells;
@@ -538,26 +586,28 @@ mod tests {
 
     #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
-        let (all, sections) = rows("", &["🔥".into()], &[], |_| None);
-        assert_eq!(all[0].heading, "FREQUENTLY USED");
+        let (all, sections) = rows("", &["🔥".into()], &[], |_| None, 0);
+        assert_eq!(all[0].heading, "Frequently Used");
         assert_eq!(all[1].cells.row_count(), 1);
-        assert_eq!(all[2].heading, "SMILEYS & EMOTION");
+        assert_eq!(all[2].heading, "People");
         assert!(all.iter().all(|row| row.cells.row_count() <= COLUMNS));
         // The sidebar jumps to each heading; a section ends where the next begins.
-        assert_eq!(sections.len(), 1 + emojis::Group::iter().count());
+        // Discord's eight categories, smileys and people as one.
+        assert_eq!(sections.len(), 1 + 8);
         assert_eq!((sections[0].row, sections[0].end), (0, 2));
-        assert_eq!(sections[1].icon.name, "Smileys & emotion");
+        assert_eq!(sections[1].icon.name, "People");
+        assert_eq!(sections[1].kind, 2);
         for (section, next) in sections.iter().zip(&sections[1..]) {
             assert!(!all[section.row as usize].heading.is_empty());
             assert_eq!(section.end, next.row);
         }
         assert_eq!(sections.last().unwrap().end as usize, all.len());
-        let (found, sections) = rows(":pizza", &[], &[], |_| None);
+        let (found, sections) = rows(":pizza", &[], &[], |_| None, 0);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
         assert!(found[0].heading.is_empty());
         assert_eq!(found[0].cells.row_data(0).unwrap().glyph, "🍕");
-        assert!(rows("no such emoji", &[], &[], |_| None).0.is_empty());
+        assert!(rows("no such emoji", &[], &[], |_| None, 0).0.is_empty());
         assert_eq!(cell("👍").name, "Thumbs up");
         // The composer gets the emoji, or a custom emoji's name.
         assert_eq!(composer_text("👍"), "👍");
@@ -575,8 +625,8 @@ mod tests {
             }],
         }];
         let icon = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(3, 3));
-        let (all, sections) = rows("", &[], &custom, |_| Some(icon.clone()));
-        assert_eq!(all[0].heading, "GAMES");
+        let (all, sections) = rows("", &[], &custom, |_| Some(icon.clone()), 0);
+        assert_eq!(all[0].heading, "Games");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
         assert_eq!(sections[0].icon.name, "Games");
@@ -586,7 +636,7 @@ mod tests {
             "the server's icon"
         );
         assert_eq!(
-            rows("po", &[], &custom, |_| None).0[0]
+            rows("po", &[], &custom, |_| None, 0).0[0]
                 .cells
                 .row_data(0)
                 .unwrap()

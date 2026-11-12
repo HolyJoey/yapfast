@@ -456,6 +456,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
+                    tag: discord::name_tag(friend.tag.clone()),
                 })
                 .collect();
         }

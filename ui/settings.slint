@@ -1188,6 +1188,7 @@ export component AdvancedSettings inherits VerticalLayout {
     in property <bool> autostart-available;
     in-out property <bool> discord-links;
     in property <bool> discord-links-available;
+    in-out property <bool> profile-looks;
     callback preferences-changed;
     callback restart;
     spacing: 16px;
@@ -1217,6 +1218,12 @@ export component AdvancedSettings inherits VerticalLayout {
         text: "Allow multiple windows";
         description: "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward.";
         checked <=> root.multiple-windows;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Show profile styles";
+        description: "Avatar decorations, nameplates and the fonts and colours people give their names. Off, names show plainly and those pictures aren't downloaded.";
+        checked <=> root.profile-looks;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {

@@ -1,7 +1,8 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
-import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField } from "controls.slint";
+import { ActionButton, IconButton, Avatar, StatusText, PictureStore, TextField, ServerTag, StyledName, Decoration, Nameplate } from "controls.slint";
 import { StatusDot } from "rail.slint";
+import { BotTag as AppTag } from "messages.slint";
 
 /// A member of the open room. A heading starts each role's group.
 export struct MemberRow {
@@ -14,6 +15,14 @@ export struct MemberRow {
     /// A custom status or what they're doing, under the name, and the
     /// address of its custom emoji's picture.
     activity: string, activity-emoji: string,
+    /// The line is a game they play, after a controller.
+    playing: bool,
+    /// Their Discord server tag and its badge; a bot or app, marked APP.
+    tag: string, tag-badge: string, bot: bool,
+    /// Their Discord display name style (font and effect ids, 0 for none,
+    /// and two colours), avatar decoration and nameplate pictures.
+    name-font: int, name-effect: int, name-color-a: color, name-color-b: color,
+    decoration: string, nameplate: string,
     picture-url: string,
     /// Timed out in their Discord server, marked with a clock by the name.
     timed-out: bool,
@@ -45,7 +54,7 @@ export component MemberPanel inherits Rectangle {
                 spacing: 2px;
                 if member.heading != "": HorizontalLayout {
                     padding-left: 8px; height: 36px;
-                    Text { text: member.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center; }
+                    Text { text: member.heading; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
                 Rectangle {
                   height: 42px; border-radius: 6px;
@@ -62,6 +71,8 @@ export component MemberPanel inherits Rectangle {
                         }
                     }
                   }
+                  // Their nameplate behind the row, as in Discord's list.
+                  if member.nameplate != "": Nameplate { url: member.nameplate; }
                   HorizontalLayout {
                     padding-left: 8px; padding-right: 8px; spacing: 12px;
                     // Offline Discord members are faded, as in Discord.
@@ -69,6 +80,7 @@ export component MemberPanel inherits Rectangle {
                         Rectangle {
                             width: 32px; height: 32px;
                             Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; opacity: member.presence == "offline" ? 0.4 : 1; }
+                            if member.decoration != "": Decoration { url: member.decoration; avatar: 32px; opacity: member.presence == "offline" ? 0.4 : 1; }
                             if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
                         }
                     }
@@ -76,19 +88,27 @@ export component MemberPanel inherits Rectangle {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 6px;
-                            Text {
-                                text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
+                            StyledName {
+                                text: member.name; plain: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
+                                font-id: member.name-font; effect: member.name-effect; color-a: member.name-color-a; color-b: member.name-color-b;
                             }
+                            if member.tag != "": Middle { ServerTag { text: member.tag; badge-url: member.tag-badge; font-size: 11px; } }
+                            if member.bot: Middle { AppTag { } }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
                                 colorize: Theme.danger;
                                 accessible-role: image; accessible-label: "Timed out";
                             }
                         }
-                        if member.activity != "" || member.activity-emoji != "": StatusText {
-                            text: member.activity; emoji-url: member.activity-emoji; font-size: 12px;
+                        if member.activity != "" || member.activity-emoji != "": HorizontalLayout {
+                            spacing: 4px; alignment: start;
                             opacity: member.presence == "offline" ? 0.5 : 1;
+                            if member.playing: VerticalLayout {
+                                alignment: center;
+                                Image { source: @image-url("icons/gamepad.svg"); width: 14px; height: 14px; colorize: Theme.live; }
+                            }
+                            StatusText { text: member.activity; emoji-url: member.activity-emoji; font-size: 12px; }
                         }
                     }
                   }
@@ -163,7 +183,7 @@ export component ProfileHeading inherits Text {
 }
 
 // An activity's picture: square with rounded corners, asked for as it shows.
-component ActivityPicture inherits Rectangle {
+export component ActivityPicture inherits Rectangle {
     in property <string> url;
     in property <string> label;
     in property <length> size;

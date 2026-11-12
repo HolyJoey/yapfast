@@ -97,6 +97,7 @@ pub fn member_server(alice: &[&str]) -> Application {
             presence: None,
             activity: None,
             activities: Default::default(),
+            tag: None,
         }]
         .into(),
         names: SharedNames::new(Arc::new(RwLock::new(names))),
@@ -147,6 +148,8 @@ pub fn member_server(alice: &[&str]) -> Application {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
+        bot: false,
     };
     app.apply(Event::Members {
         room: "discord:10:11".into(),

@@ -397,14 +397,19 @@ impl Application {
 
     /// Opens the DM with someone and starts its call, or starts a DM with a
     /// friend first, whose call starts once it opens.
-    pub(super) fn call_person(&mut self, user: String) -> Vec<Effect> {
+    pub(super) fn call_person(&mut self, user: String, video: bool) -> Vec<Effect> {
         if let Some(dm) = self.state.dm_with(&user) {
             let dm = dm.id.clone();
             if !self.state.can_join_voice(&dm) {
                 return vec![];
             }
             let mut effects = self.dispatch(Action::Open(dm.clone()));
-            effects.extend(self.dispatch(Action::RequestJoinVoice(dm)));
+            effects.extend(self.dispatch(Action::RequestJoinVoice(dm.clone())));
+            // Only once this call is the one joining: not while asking to
+            // switch from another.
+            if video && self.state.voice.room.as_ref() == Some(&dm) {
+                effects.extend(self.dispatch(Action::Voice(voice::Command::Video(true))));
+            }
             return effects;
         }
         let friend = self.state.relation(&user) == Relation::Friend;
@@ -413,6 +418,7 @@ impl Application {
         }
         self.starting_dm = true;
         self.pending_call = true;
+        self.pending_video = video;
         vec![Effect::Backend(Command::StartDm {
             id: user,
             discord: true,

@@ -62,11 +62,15 @@ impl Activity {
     /// custom status, such as "Playing Factorio"; none for a Hang status.
     pub fn line(&self) -> Option<String> {
         Some(match self.kind {
-            Kind::Playing => format!("Playing {}", self.name),
+            Kind::Playing => self.name.to_string(),
             Kind::Streaming => format!(
                 "Streaming {}",
                 self.details.as_deref().unwrap_or(&self.name)
             ),
+            Kind::Listening if self.spotify() => match self.state.as_deref() {
+                Some(artists) if !artists.is_empty() => format!("\u{266b} {artists}"),
+                _ => format!("Listening to {}", self.name),
+            },
             Kind::Listening => format!("Listening to {}", self.name),
             Kind::Watching => format!("Watching {}", self.name),
             Kind::Competing => format!("Competing in {}", self.name),
@@ -394,7 +398,7 @@ mod tests {
         ]));
         let icon = parsed[0].large_image.as_deref().unwrap();
         assert_eq!(icon_application(icon), Some("42"));
-        assert_eq!(parsed[0].line().as_deref(), Some("Playing Factorio"));
+        assert_eq!(parsed[0].line().as_deref(), Some("Factorio"));
         assert_eq!(parsed[1].line().as_deref(), Some("Streaming Speedrun"));
         assert_eq!(parsed[1].url.as_deref(), Some("https://twitch.tv/ann"));
         assert_eq!(parsed[2].url, None, "only web addresses open");

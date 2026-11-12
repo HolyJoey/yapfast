@@ -39,6 +39,10 @@ pub struct ListedMember {
     /// When their timeout ends, in Unix milliseconds, while they're timed
     /// out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// The server tag they wear after their name.
+    pub tag: Option<message::Tag>,
+    /// A bot or app, which Discord's list marks APP.
+    pub bot: bool,
 }
 
 /// Whether someone is around, as their status dot shows.
@@ -318,6 +322,8 @@ impl MemberList {
                         activities: person.activities,
                         roles: person.roles,
                         timed_out_until: names.timed_out_until(&self.guild, user),
+                        tag: names.server_tag(user).cloned(),
+                        bot: names.is_bot(user),
                     });
                 }
                 Row::Unknown => {}
@@ -541,7 +547,7 @@ mod tests {
             ]
         );
         assert_eq!(members[0].color, Some(0x3498db));
-        assert_eq!(members[0].activity.as_deref(), Some("Playing Chess"));
+        assert_eq!(members[0].activity.as_deref(), Some("Chess"));
         assert_eq!(members[1].color, None);
         assert!(list.presence(
             &json!({"guild_id": "10", "user": {"id": "2"}, "status": "idle", "activities": []})

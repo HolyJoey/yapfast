@@ -44,6 +44,8 @@ tokio-tungstenite = { version = "0.26", default-features = false, features = ["c
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
+# Unpacks gg sans, which Discord serves as WOFF2; see src/ui_font.rs.
+wuff = { version = "0.2.10", default-features = false, features = ["brotli"] }
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
 webrtc-sys = "=0.3.35"
 

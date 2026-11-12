@@ -24,6 +24,9 @@ pub enum MenuChoice {
     Unpin,
     /// Start a DM's call, or join the one going on.
     Call,
+    /// Start a call with someone with this account's camera on, as the
+    /// friends list's "Start Video Call" does.
+    VideoCall,
     /// Write this account's note on a Discord DM's other person, or the
     /// nickname it gives them as a friend.
     AddNote,

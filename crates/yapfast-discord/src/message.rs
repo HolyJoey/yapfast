@@ -275,6 +275,10 @@ pub enum Reply {
         author_id: String,
         author: String,
         content: String,
+        /// It carries files or pictures, which Discord's reply line offers
+        /// to show when it has no words.
+        #[serde(default)]
+        attachments: bool,
     },
     Deleted,
 }
@@ -591,6 +595,12 @@ pub fn parse(value: &Value) -> Option<Message> {
                 author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
                 author: author_name(original).into(),
                 content: original["content"].as_str().unwrap_or_default().into(),
+                attachments: original["attachments"]
+                    .as_array()
+                    .is_some_and(|files| !files.is_empty())
+                    || original["sticker_items"]
+                        .as_array()
+                        .is_some_and(|stickers| !stickers.is_empty()),
             }
         }
         _ => Reply::Deleted,
@@ -844,8 +854,8 @@ fn spoils_links(content: &str) -> bool {
 }
 
 /// The size Yapfast shows image previews at, at most.
-pub const PREVIEW_WIDTH: u64 = 360;
-pub const PREVIEW_HEIGHT: u64 = 270;
+pub const PREVIEW_WIDTH: u64 = 550;
+pub const PREVIEW_HEIGHT: u64 = 350;
 
 /// The image viewer's largest size.
 pub const VIEW_WIDTH: u64 = 1920;
@@ -952,6 +962,107 @@ fn author_name(message: &Value) -> &str {
         .as_str()
         .or_else(|| ready::display_name(&message["author"]))
         .unwrap_or("Discord user")
+}
+
+/// What someone wears on Discord besides their avatar, from their user
+/// object: a server tag after their name, a decoration round their avatar,
+/// a nameplate behind their row in lists, and their name's style.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Tag {
+    /// The server tag's up to four characters, such as `TMP`; empty for
+    /// none.
+    pub text: Box<str>,
+    /// The address of its badge, the server's small picture before it.
+    pub badge: Option<Box<str>>,
+    /// The address of the avatar decoration's still picture.
+    pub decoration: Option<Box<str>>,
+    /// The address of the nameplate's still picture, and its palette, such
+    /// as `bubble_gum`.
+    pub nameplate: Option<Box<str>>,
+    pub palette: Option<Box<str>>,
+    /// The display name's style: Discord's font and effect ids, 0 for none,
+    /// and its colours.
+    pub font: u8,
+    pub effect: u8,
+    pub colors: Box<[u32]>,
+}
+
+impl Tag {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Learns into `looks` what a user object says of each part it carries;
+/// a part it leaves out stays as known, and null takes it off.
+fn learn_looks(looks: &mut Tag, user: &Value) {
+    let cdn = ready::cdn();
+    if let Some(primary) = user.get("primary_guild") {
+        let shown = primary["identity_enabled"] != false;
+        let text = primary["tag"]
+            .as_str()
+            .map(str::trim)
+            .filter(|tag| shown && !tag.is_empty());
+        let guild = primary["identity_guild_id"]
+            .as_str()
+            .filter(|guild| guild.bytes().all(|byte| byte.is_ascii_digit()));
+        let badge = primary["badge"]
+            .as_str()
+            .filter(|badge| badge.bytes().all(|byte| byte.is_ascii_alphanumeric()));
+        looks.text = text.unwrap_or_default().into();
+        looks.badge = text.and(guild.zip(badge)).map(|(guild, badge)| {
+            format!("{cdn}/guild-tag-badges/{guild}/{badge}.png?size=32").into()
+        });
+    }
+    if let Some(decoration) = user.get("avatar_decoration_data") {
+        looks.decoration = decoration["asset"]
+            .as_str()
+            .filter(|asset| {
+                asset
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            })
+            .map(|asset| {
+                format!("{cdn}/avatar-decoration-presets/{asset}.png?size=96&passthrough=false")
+                    .into()
+            });
+    }
+    if let Some(collectibles) = user.get("collectibles") {
+        let nameplate = &collectibles["nameplate"];
+        let asset = nameplate["asset"].as_str().filter(|asset| {
+            asset.ends_with('/')
+                && asset
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'/'))
+        });
+        looks.nameplate =
+            asset.map(|asset| format!("{cdn}/assets/collectibles/{asset}static.png").into());
+        looks.palette = asset
+            .and(nameplate["palette"].as_str())
+            .filter(|palette| {
+                palette
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            })
+            .map(Into::into);
+    }
+    if let Some(style) = user.get("display_name_styles") {
+        let id = |field: &str| {
+            style[field]
+                .as_u64()
+                .and_then(|id| u8::try_from(id).ok())
+                .unwrap_or(0)
+        };
+        looks.font = id("font_id");
+        looks.effect = id("effect_id");
+        looks.colors = style["colors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|color| color.as_u64().and_then(|color| u32::try_from(color).ok()))
+            .take(4)
+            .collect();
+    }
 }
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
@@ -1080,6 +1191,9 @@ pub struct Names {
     members: HashSet<(Id, Id)>,
     /// Avatar hashes by user id, of those who set one.
     avatars: HashMap<Id, String>,
+    /// What people wear, by user id: server tags, decorations, nameplates
+    /// and name styles. Not saved: every user object carries it.
+    tags: HashMap<Id, Tag>,
     /// Server avatar hashes by server and user id.
     member_avatars: HashMap<(Id, Id), String>,
     /// Members' roles by server and user id, for the colour of their name.
@@ -1215,6 +1329,7 @@ impl Names {
         self.usernames.retain(|user, _| seen.contains_key(user));
         self.bots.retain(|user| seen.contains_key(user));
         self.avatars.retain(|user, _| seen.contains_key(user));
+        self.tags.retain(|user, _| seen.contains_key(user));
         self.nicknames
             .retain(|(_, user), _| seen.contains_key(user));
         self.members.retain(|(_, user)| seen.contains_key(user));
@@ -1251,6 +1366,22 @@ impl Names {
                 self.bots.remove(&id);
             }
             None => {}
+        }
+        // What they wear: a server tag, a decoration, a nameplate and their
+        // name's style, as far as this user object says.
+        if [
+            "primary_guild",
+            "avatar_decoration_data",
+            "collectibles",
+            "display_name_styles",
+        ]
+        .iter()
+        .any(|part| user.get(part).is_some())
+        {
+            let mut looks = self.tags.get(&id).cloned().unwrap_or_default();
+            learn_looks(&mut looks, user);
+            let looks = (!looks.is_empty()).then_some(looks);
+            learned |= changed(&mut self.tags, id, looks);
         }
         // Partial user objects leave the avatar out; null removes it.
         match user.get("avatar") {
@@ -1431,6 +1562,13 @@ impl Names {
             .and_then(|guild| self.nicknames.get(&(guild, user_id)))
             .or_else(|| self.users.get(&user_id))
             .map(String::as_str)
+    }
+
+    /// The server tag a user wears after their name, if any.
+    pub fn server_tag(&self, user: &str) -> Option<&Tag> {
+        let user = id(user)?;
+        self.touch(user);
+        self.tags.get(&user)
     }
 
     /// The address of the avatar Discord shows for a user: their server
@@ -1870,13 +2008,14 @@ mod tests {
                 id: "9".into(),
                 author_id: "2".into(),
                 author: "ann".into(),
-                content: "hello".into()
+                content: "hello".into(),
+                attachments: false,
             })
         );
         assert!(message.attachments[0].image);
         assert_eq!(
             message.attachments[0].preview_url.as_deref(),
-            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=360&height=135")
+            Some("https://media/cat.png?ex=1&animated=true&format=webp&width=550&height=206")
         );
         assert_eq!(
             message.attachments[0].view_url.as_deref(),
@@ -1889,7 +2028,7 @@ mod tests {
         assert_eq!(video.video_url.as_deref(), Some("https://cdn/clip.mp4"));
         assert_eq!(
             video.preview_url.as_deref(),
-            Some("https://media/clip.mp4?format=webp&width=360&height=203")
+            Some("https://media/clip.mp4?format=webp&width=550&height=309")
         );
         assert_eq!(video.dimensions, Some((1920, 1080)));
         assert_eq!(message.attachments[0].video_url, None);

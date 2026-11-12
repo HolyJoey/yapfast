@@ -7,9 +7,11 @@
 
 /// Font units per em, as in Atkinson Hyperlegible Next and Satoshi.
 const UNITS_PER_EM: u16 = 1000;
-/// Atkinson Hyperlegible Next's ascender, descender and line gap, in font
-/// units. Satoshi's, the second choice of typeface, are 1010, -240 and 100.
-const ASCENDER: i16 = 984;
+/// The ascender, descender and line gap, in font units: gg sans's ascender,
+/// the typeface the Discord build draws once it's downloaded, with Atkinson
+/// Hyperlegible Next's descender and line gap. Atkinson's ascender is 984;
+/// Satoshi's, the second choice of typeface, are 1010, -240 and 100.
+const ASCENDER: i16 = 1018;
 const DESCENDER: i16 = -316;
 const LINE_GAP: i16 = 0;
 /// The pixels per em of the bitmaps. Text draws them scaled to its size.

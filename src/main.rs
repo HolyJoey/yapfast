@@ -37,6 +37,8 @@ mod tray;
 #[cfg(feature = "desktop")]
 mod ui;
 #[cfg(feature = "desktop")]
+mod ui_font;
+#[cfg(feature = "desktop")]
 mod zoom;
 
 use anyhow::{Context, Result, bail};

@@ -262,15 +262,19 @@ impl Application {
                         reply: match compose {
                             Some(Compose::Reply {
                                 item, author, body, ..
-                            }) => Some(Reply {
-                                author,
-                                avatar: self
-                                    .state
-                                    .message(&item)
-                                    .and_then(|original| original.avatar.clone()),
-                                body,
-                                item: Some(item),
-                            }),
+                            }) => {
+                                let original = self.state.message(&item);
+                                Some(Reply {
+                                    author,
+                                    avatar: original.and_then(|original| original.avatar.clone()),
+                                    color: original.and_then(|original| original.color),
+                                    tag: original.and_then(|original| original.tag.clone()),
+                                    attachments: false,
+                                    ping: true,
+                                    body,
+                                    item: Some(item),
+                                })
+                            }
                             _ => None,
                         },
                         ..sample_actions()

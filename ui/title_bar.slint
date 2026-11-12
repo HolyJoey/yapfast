@@ -1,4 +1,5 @@
 import { Theme } from "theme.slint";
+import { PictureStore } from "controls.slint";
 
 // One of the title bar's window buttons: a glyph on a ground that shows on hover.
 component WindowButton inherits Rectangle {
@@ -21,13 +22,57 @@ component WindowButton inherits Rectangle {
     }
 }
 
-// The window's title bar, when Yapfast draws it rather than the desktop: where
-// the window is, on the rail's ground, and its minimize, maximize and close
-// buttons. Pressing and moving moves the window; a double click maximizes it.
+// A small glyph button in Discord's title bar: back, forward or help.
+component BarButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 24px; height: 24px; border-radius: 4px;
+    background: pointer.has-hover && root.enabled ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image {
+        source: root.icon; width: 18px; height: 18px;
+        colorize: !root.enabled ? Theme.faint : pointer.has-hover ? Theme.text : Theme.secondary;
+    }
+    pointer := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The window's title bar, as Discord's: back and forward at the left, where
+// the window is in the middle with its icon, and help at the right, on the
+// rail's ground. When Yapfast draws the frame rather than the desktop, the
+// minimize, maximize and close buttons follow, and pressing and moving moves
+// the window; a double click maximizes it.
 export component TitleBar inherits Rectangle {
     in property <string> place;
+    /// The address of the place's picture, such as a server's icon or a
+    /// DM's avatar, round for a person; else a glyph.
+    in property <string> place-url;
+    in property <bool> place-round;
+    in property <image> place-icon;
+    property <image> place-picture: root.place-url != "" ? PictureStore.picture(root.place-url, PictureStore.revision) : @image-url("");
+    function request-picture() {
+        if root.place-url != "" && root.place-picture.width == 0 {
+            PictureStore.request(root.place-url);
+        }
+    }
+    init => { root.request-picture(); }
+    changed place-url => { root.request-picture(); }
     in property <bool> focused;
     in property <bool> maximized;
+    /// The window's own frame: the window buttons show, and the bar moves it.
+    in property <bool> frame;
+    in property <bool> can-back;
+    in property <bool> can-forward;
+    callback back;
+    callback forward;
+    callback help;
     callback move-window;
     callback minimize-window;
     callback maximize-window;
@@ -48,31 +93,71 @@ export component TitleBar inherits Rectangle {
             }
         }
         moved => {
-            if root.armed && (abs(self.mouse-x - self.pressed-x) > 3px || abs(self.mouse-y - self.pressed-y) > 3px) {
+            if root.frame && root.armed && (abs(self.mouse-x - self.pressed-x) > 3px || abs(self.mouse-y - self.pressed-y) > 3px) {
                 root.armed = false;
                 root.move-window();
             }
         }
-        double-clicked => { root.maximize-window(); }
+        double-clicked => { if root.frame { root.maximize-window(); } }
     }
-    Text {
+    HorizontalLayout {
+        x: 0px; width: 3 * 44px;
+        padding-left: 12px; spacing: 6px; alignment: start;
+        VerticalLayout {
+            alignment: center;
+            BarButton {
+                icon: @image-url("icons/arrow-left.svg"); label: "Back"; enabled: root.can-back;
+                clicked => { root.back(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            BarButton {
+                icon: @image-url("icons/arrow-right.svg"); label: "Forward"; enabled: root.can-forward;
+                clicked => { root.forward(); }
+            }
+        }
+    }
+    HorizontalLayout {
         x: 3 * 44px; width: parent.width - 6 * 44px;
-        text: root.place; font-size: 13px; font-weight: 500;
-        color: root.focused ? Theme.secondary : Theme.faint;
-        horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+        alignment: center; spacing: 8px;
+        if root.place-picture.width > 0: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px; height: 18px; border-radius: root.place-round ? 9px : 6px; clip: true;
+                Image { source: root.place-picture; width: 18px; height: 18px; image-fit: cover; }
+            }
+        }
+        if root.place-picture.width == 0 && root.place-icon.width > 0: VerticalLayout {
+            alignment: center;
+            Image { source: root.place-icon; width: 18px; height: 18px; colorize: root.focused ? Theme.secondary : Theme.faint; }
+        }
+        Text {
+            text: root.place; font-size: 14px; font-weight: 600;
+            color: root.focused ? Theme.text : Theme.faint;
+            vertical-alignment: center; overflow: elide;
+        }
     }
     HorizontalLayout {
         alignment: end;
-        WindowButton {
+        padding-right: root.frame ? 0px : 12px;
+        VerticalLayout {
+            alignment: center; padding-right: 8px;
+            BarButton {
+                icon: @image-url("icons/circle-help.svg"); label: "Help";
+                clicked => { root.help(); }
+            }
+        }
+        if root.frame: WindowButton {
             icon: @image-url("icons/minus.svg"); label: "Minimize"; dim: !root.focused;
             clicked => { root.minimize-window(); }
         }
-        WindowButton {
+        if root.frame: WindowButton {
             icon: root.maximized ? @image-url("icons/restore.svg") : @image-url("icons/square.svg");
             label: root.maximized ? "Restore" : "Maximize"; dim: !root.focused;
             clicked => { root.maximize-window(); }
         }
-        WindowButton {
+        if root.frame: WindowButton {
             icon: @image-url("icons/x.svg"); label: "Close"; dim: !root.focused;
             clicked => { root.close-window(); }
         }

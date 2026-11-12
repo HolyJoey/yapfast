@@ -899,6 +899,8 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: message.avatar.clone(),
+                tag: None,
+                bot: false,
                 group: None,
                 presence: None,
                 color: message.color,
@@ -923,6 +925,8 @@ impl AppState {
                 username: None,
                 role: Role::Member,
                 avatar: person.avatar.clone(),
+                tag: None,
+                bot: false,
                 group: None,
                 presence: None,
                 color: None,
@@ -947,6 +951,8 @@ impl AppState {
             username: None,
             role: Role::Member,
             avatar: None,
+            tag: None,
+            bot: false,
             group: None,
             presence: None,
             color: None,
@@ -1785,6 +1791,9 @@ pub enum Action {
     /// Open the DM with someone and start its call, starting the DM first
     /// with a friend Yapfast has none with.
     CallPerson(String),
+    /// As [`Action::CallPerson`], with this account's camera on once the
+    /// call starts, as Discord's "Start Video Call" does.
+    VideoCallPerson(String),
     /// Open a dialog about a member of a Discord server, by its server id
     /// or one of its channels' room ids, when this account may. With
     /// [`PersonAsk::ServerNickname`] and this account's own id it changes
@@ -1984,6 +1993,8 @@ pub struct Application {
     starting_dm: bool,
     /// Its call starts once it opens, as [`Action::CallPerson`] asks.
     pending_call: bool,
+    /// And with the camera on, as [`Action::VideoCallPerson`] asks.
+    pending_video: bool,
     /// What [`Action::MessageFromProfile`] sends once its DM opens.
     pending_message: Option<PendingMessage>,
     /// The composer text of the message being sent, which `Event::SendResult` clears
@@ -2342,6 +2353,9 @@ impl Application {
             effects.extend(self.dispatch(Action::Open(room.clone())));
             if std::mem::take(&mut self.pending_call) {
                 effects.extend(self.dispatch(Action::RequestJoinVoice(room)));
+                if std::mem::take(&mut self.pending_video) {
+                    effects.extend(self.dispatch(Action::Voice(voice::Command::Video(true))));
+                }
             }
         }
         if let Some(room) = self
@@ -2934,7 +2948,8 @@ impl Application {
                 vec![]
             }
             Action::MentionPerson(user) => self.mention_person(user),
-            Action::CallPerson(user) => self.call_person(user),
+            Action::CallPerson(user) => self.call_person(user, false),
+            Action::VideoCallPerson(user) => self.call_person(user, true),
             Action::AskMember { place, user, ask } => self.ask_member(place, user, ask),
             Action::ChoosePersonOption(choice) => {
                 if let Some(dialog) = &mut self.state.person_dialog {
@@ -3625,6 +3640,7 @@ impl Application {
                     new_dm.error = Some(error);
                 } else if std::mem::take(&mut self.starting_dm) {
                     self.pending_call = false;
+                    self.pending_video = false;
                     self.pending_message = None;
                     self.state.notice = Some(error);
                 }

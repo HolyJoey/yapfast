@@ -306,6 +306,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     }
     bind!(on_close_forward, Action::CloseForward);
     bind!(on_close_switcher, Action::CloseSwitcher);
+    bind!(on_open_switcher, Action::ToggleSwitcher);
     bind!(on_dismiss_notice, Action::DismissNotice);
     bind!(on_close_image, Action::CloseImage);
     {
@@ -885,6 +886,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 let icon = adapter.app.state.pictures.get(set.icon.as_deref()?)?;
                 Some(picture(icon))
             },
+            adapter.layout.skin_tone,
         );
         update_model(&adapter.models.emoji_rows, rows);
         // Matches have no sections; the sidebar keeps those it jumps back to.
@@ -1215,6 +1217,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());
         layout.multiple_windows = window.get_multiple_windows();
+        layout.profile_looks = Some(window.get_profile_looks());
         adapter.layout.write(&adapter.root);
         adapter.watch_talk_key(&window);
         let start = window.get_start_on_sign_in();
@@ -1312,6 +1315,47 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 volumes.insert(person.into(), volume);
             }
             adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_go_back(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().travel(&window, false);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_go_forward(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().travel(&window, true);
+        }
+    });
+    window.on_open_help(|| {
+        // Discord's help button opens its support site.
+        browser::open("https://support.discord.com");
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_choose_skin_tone(move |tone| {
+        let Some(window) = weak.upgrade() else { return };
+        {
+            let mut adapter = state.borrow_mut();
+            adapter.layout.skin_tone = u8::try_from(tone.clamp(0, 5)).unwrap_or(0);
+            adapter.layout.write(&adapter.root);
+        }
+        window.set_skin_tone(tone.clamp(0, 5));
+        // The grid again, in the new tone.
+        window.invoke_emoji_search(window.get_emoji_query());
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_close_friends_tip(move || {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.friends_tip_closed = true;
+        adapter.layout.write(&adapter.root);
+        if let Some(window) = weak.upgrade() {
+            window.set_friends_tip(false);
         }
     });
     let state = adapter.clone();

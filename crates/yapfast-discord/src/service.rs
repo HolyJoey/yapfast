@@ -103,6 +103,10 @@ pub struct Conversation {
     pub name: String,
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
+    /// A group DM without an icon: two of its people's avatars, which
+    /// Discord shows one over the other in its place.
+    #[serde(default)]
+    pub faces: Vec<String>,
     pub group: bool,
     /// Everyone in it, this account included.
     pub people: usize,
@@ -192,6 +196,9 @@ pub struct Friend {
     pub activity: Option<String>,
     #[serde(skip)]
     pub activities: crate::activity::Activities,
+    /// The server tag they wear after their name, from their user object.
+    #[serde(skip)]
+    pub tag: Option<message::Tag>,
 }
 
 /// Someone this account can start a DM with.
@@ -2924,6 +2931,11 @@ impl Discord {
             }
         }
         people
+    }
+
+    /// The server tag someone wears after their name.
+    pub fn tag(&self, user: &str) -> Option<message::Tag> {
+        self.read_names().server_tag(user).cloned()
     }
 
     /// The RGB colour of a member's name in a server: their highest coloured

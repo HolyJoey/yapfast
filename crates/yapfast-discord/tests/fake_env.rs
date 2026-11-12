@@ -261,10 +261,7 @@ async fn shows_the_example_environment() {
         ]
     );
     assert_eq!(members[0].color, Some(0xe91e63), "Gardeners' pink");
-    assert_eq!(
-        members[0].activity.as_deref(),
-        Some("Playing Pixel Painter")
-    );
+    assert_eq!(members[0].activity.as_deref(), Some("Pixel Painter"));
 
     // A profile: bio, pronouns, banner and the servers shared.
     let maya = members[0].user_id.clone();

@@ -15,8 +15,9 @@ use crate::{
 pub const MAX_MESSAGE_BYTES: usize = 16_000;
 /// Larger downloads only get a file card, never an inline preview.
 pub(crate) const MAX_PREVIEW_DOWNLOAD_BYTES: usize = 20 * 1024 * 1024;
-pub const PREVIEW_WIDTH: u32 = 360;
-pub const PREVIEW_HEIGHT: u32 = 270;
+/// A message picture's largest preview, as Discord shows one: 550 by 350.
+pub const PREVIEW_WIDTH: u32 = 550;
+pub const PREVIEW_HEIGHT: u32 = 350;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
@@ -92,6 +93,9 @@ pub struct ChatRoom {
     /// The address of a Discord DM's picture: the other person's avatar or
     /// the group's icon. See [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// A Discord group DM without an icon: two of its people's avatars,
+    /// shown one over the other in its place.
+    pub faces: Vec<String>,
     /// The largest file a message here may carry, in bytes.
     pub upload_limit: u64,
     /// A one-to-one Discord DM's other person: whether they're around, when
@@ -104,6 +108,10 @@ pub struct ChatRoom {
     pub parent: Option<String>,
     /// A Discord forum, whose posts show in place of messages.
     pub forum: bool,
+    /// A Discord announcement channel, or a server's rules channel: each
+    /// has its own icon in the channel list.
+    pub announcement: bool,
+    pub rules: bool,
     /// A Discord server's text channel its channel list leaves out unless
     /// it's open or mentions this account, as Discord's client does with
     /// Show All Channels off for one this account doesn't follow; or a
@@ -200,6 +208,8 @@ pub struct Friend {
     pub name: String,
     pub nickname: Option<String>,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
+    /// Their server tag, after their name.
+    pub tag: Option<NameTag>,
     pub avatar: Option<String>,
     /// Whether they're around, when Discord says, and their custom status or
     /// what they're doing.
@@ -675,6 +685,10 @@ pub struct ChatMember {
     pub username: Option<String>,
     pub role: Role,
     /// The address of their avatar; see [`DiscordCommand::Pictures`].
+    /// A Discord bot or app, marked APP.
+    pub bot: bool,
+    /// Their Discord server tag, after their name.
+    pub tag: Option<NameTag>,
     pub avatar: Option<String>,
     /// The heading Discord lists them under, with its size, such as
     /// `Online — 12`. Matrix members are grouped by `role` instead.
@@ -746,9 +760,34 @@ pub enum Delivery {
     Failed,
 }
 
+/// What someone wears on Discord besides their avatar: a server tag after
+/// their name, such as `TMP` (empty for none), and the address of its badge;
+/// the addresses of their avatar decoration's and nameplate's pictures, and
+/// the nameplate's palette; and their name's style, as Discord's font and
+/// effect ids (0 for none) and colours.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct NameTag {
+    pub text: String,
+    pub badge: Option<String>,
+    pub decoration: Option<String>,
+    pub nameplate: Option<String>,
+    pub palette: Option<String>,
+    pub font: u8,
+    pub effect: u8,
+    pub colors: Vec<u32>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
+    /// The author's name colour and server tag, as on their own messages.
+    pub color: Option<u32>,
+    pub tag: Option<NameTag>,
+    /// The original message has no words, only files, which Discord's
+    /// line offers to show.
+    pub attachments: bool,
+    /// The reply pinged its author, which Discord marks with an @.
+    pub ping: bool,
     /// The address of the author's avatar, where the network gives one; see
     /// [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
@@ -1397,6 +1436,8 @@ pub struct ChatMessage {
     pub avatar: Option<String>,
     /// The RGB colour of the author's name, from their highest coloured
     /// Discord role.
+    /// The author's Discord server tag, after their name.
+    pub tag: Option<NameTag>,
     pub color: Option<u32>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
@@ -4656,7 +4697,7 @@ mod tests {
         let large = decode_view(&png(3840, 1200)).unwrap();
         assert_eq!((large.width, large.height), (1920, 600));
         let preview = decode_preview(&png(800, 500)).unwrap();
-        assert_eq!((preview.width, preview.height), (360, 225));
+        assert_eq!((preview.width, preview.height), (550, 344));
     }
 
     #[test]

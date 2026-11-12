@@ -93,5 +93,11 @@ on it), red `--control-critical-primary-background-default` (#d22d39), live
 `--control-secondary-background-*` washes laid over their grounds. It carries
 no Discord name or logo.
 
+Onyx maps `.theme-midnight` the same way: black grounds
+(`--background-base-*` are #000), raised surfaces `--background-surface-high`
+(#0a0a0c), the composer `--chat-background-default` (#101013), text
+`--text-default` (#d4d5d8), secondary `--interactive-text-default`, muted
+`--text-muted`, links `--text-link` (#2781e7), and the same washes over black.
+
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.

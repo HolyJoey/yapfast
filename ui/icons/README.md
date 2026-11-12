@@ -33,9 +33,15 @@ glyphs such as check, x and chevrons.
   the speaker of volume-2, volume-2-bold and volume-x.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
-LICENSE (ISC): check, chevron-down, chevron-left, chevron-right, maximize,
-minimize, minus, restore, slash, square and x. restore is Lucide's copy icon,
-which the title bar shows for its restore button.
+LICENSE (ISC): arrow-left, arrow-right, check, chevron-down, chevron-left,
+chevron-right, circle-help, gamepad (gamepad-2), maximize, megaphone,
+message-circle-plus, minimize, minus, plus, restore, rules
+(square-check-big), slash, square and x, and the emoji picker's categories:
+emoji-recent (clock), emoji-people (smile), emoji-nature (leaf), emoji-food
+(soup), emoji-travel (bike), emoji-objects (lamp), emoji-symbols (heart)
+and emoji-flags (flag). restore is Lucide's copy icon, which the title bar shows for its
+restore button. ellipsis-vertical is Solar's menu-dots turned upright, for
+the friends list's ⋮ button.
 
 discord.svg is Discord's logo from Simple Icons 16.34.0
 (https://simpleicons.org/, CC0 1.0), filled white. It marks Discord servers

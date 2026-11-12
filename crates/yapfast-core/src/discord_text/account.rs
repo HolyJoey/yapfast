@@ -87,6 +87,8 @@ pub(super) fn command(
                     activities: Default::default(),
                     roles: discord.roles(guild, &user),
                     timed_out_until: None,
+                    tag: crate::discord::name_tag(discord.tag(&user)),
+                    bot: false,
                     id: user,
                 })
                 .collect();
@@ -142,6 +144,8 @@ pub(super) fn command(
                         activities: Default::default(),
                         roles: discord.roles(&guild, &user),
                         timed_out_until: None,
+                        tag: crate::discord::name_tag(discord.tag(&user)),
+                        bot: false,
                         id: user,
                     })
                     .collect();

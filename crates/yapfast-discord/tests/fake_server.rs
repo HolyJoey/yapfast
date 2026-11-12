@@ -1415,7 +1415,7 @@ async fn reads_history_and_member_lists() {
         .await
         .unwrap();
     assert!(preview.starts_with(b"\x89PNG"));
-    assert_eq!(&preview[16..24], &[0, 0, 1, 104, 0, 0, 0, 225], "360x225");
+    assert_eq!(&preview[16..24], &[0, 0, 2, 38, 0, 0, 1, 88], "550x344");
 
     // The channel's member list arrives once it's on screen, grouped as in
     // Discord: the hoisted Mods role, then online, then offline.
@@ -1440,7 +1440,7 @@ async fn reads_history_and_member_lists() {
         ]
     );
     assert_eq!(members[0].color, Some(0x3498db), "the Mods role's blue");
-    assert_eq!(members[0].activity.as_deref(), Some("Playing Factorio"));
+    assert_eq!(members[0].activity.as_deref(), Some("Factorio"));
     assert_eq!(
         members[2].activity.as_deref(),
         Some("🌙 back later\nafter dinner, probably")

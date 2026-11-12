@@ -116,6 +116,34 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
     }
 }
 
+/// The game someone plays, which Discord's lists show after a controller,
+/// and the line under their name without it: their custom status, else what
+/// else they do, such as a song.
+pub(super) fn game_and_status(
+    line: Option<&str>,
+    activities: &yapfast_core::chat::Activities,
+) -> (SharedString, Option<String>) {
+    #[cfg(feature = "discord")]
+    {
+        use yapfast_core::chat::ActivityKind;
+        let game = activities
+            .iter()
+            .find(|activity| activity.kind == ActivityKind::Playing);
+        let rest = line
+            .filter(|line| game.is_none_or(|game| game.line().as_deref() != Some(*line)))
+            .map(str::to_owned);
+        (
+            game.map_or_else(SharedString::default, |game| game.name.as_ref().into()),
+            rest,
+        )
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = activities;
+        (SharedString::default(), line.map(str::to_owned))
+    }
+}
+
 /// Whether a line under a name only says what one of the activities does.
 pub(super) fn names_an_activity(line: &str, activities: &yapfast_core::chat::Activities) -> bool {
     #[cfg(feature = "discord")]
@@ -138,7 +166,15 @@ impl Adapter {
                 .iter()
                 .any(|row| row.start > 0 || row.end > 0)
         };
-        let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
+        // Active Now's cards say how long a game has run, and time songs.
+        let active = window.get_friends_open()
+            && self
+                .models
+                .friends_active
+                .iter()
+                .any(|row| row.since > 0 || row.start > 0 || row.end > 0);
+        let shown = active
+            || (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
         if !shown {
             self.activity_clock.stop();
@@ -353,4 +389,180 @@ pub(super) fn role_color(rgb: Option<u32>) -> slint::Color {
     rgb.map_or_else(slint::Color::default, |rgb| {
         slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
     })
+}
+
+/// Friends doing something, as Discord's Active Now lists them: playing,
+/// listening, streaming or in a server's voice channel, by name.
+pub(super) fn active_now_rows(
+    friends: &[yapfast_core::chat::Friend],
+    in_voice: &HashMap<&str, super::refresh::VoicePlace<'_>>,
+) -> Vec<ActiveNowRow> {
+    #[cfg(feature = "discord")]
+    {
+        use yapfast_core::chat::ActivityKind;
+        let around = |friend: &&yapfast_core::chat::Friend| {
+            !matches!(friend.presence, None | Some(Presence::Offline))
+        };
+        fn doing(friend: &yapfast_core::chat::Friend) -> Option<&yapfast_core::chat::Activity> {
+            friend
+                .activities
+                .iter()
+                .find(|activity| activity.kind != ActivityKind::Hang)
+        }
+        // How many friends play each game, which a plain game's card says.
+        let mut players: HashMap<&str, usize> = HashMap::new();
+        for friend in friends.iter().filter(around) {
+            if let Some(activity) = doing(friend).filter(|a| a.kind == ActivityKind::Playing) {
+                *players.entry(&activity.name).or_default() += 1;
+            }
+        }
+        let mut rows: Vec<(String, ActiveNowRow)> = friends
+            .iter()
+            .filter(around)
+            .filter_map(|friend| {
+                let voice = in_voice.get(friend.id.as_str());
+                let activity = doing(friend);
+                if activity.is_none() && voice.is_none() {
+                    return None;
+                }
+                let mut row = ActiveNowRow {
+                    id: friend.id.as_str().into(),
+                    name: friend.name.as_str().into(),
+                    initial: initial(&friend.name),
+                    tint: tint(&friend.id),
+                    picture_url: friend.avatar.as_deref().unwrap_or_default().into(),
+                    presence: presence_name(friend.presence).into(),
+                    voice_room: voice.map_or("", |place| place.room).into(),
+                    voice_channel: voice.map_or("", |place| place.channel).into(),
+                    voice_server: voice.map_or("", |place| place.server).into(),
+                    ..Default::default()
+                };
+                if let Some(activity) = activity {
+                    fill_active_now(&mut row, activity, &players);
+                }
+                Some((friend.name.to_lowercase(), row))
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows.into_iter().map(|(_, row)| row).collect()
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = (friends, in_voice);
+        Vec::new()
+    }
+}
+
+/// An Active Now card's lines for what someone is doing.
+#[cfg(feature = "discord")]
+fn fill_active_now(
+    row: &mut ActiveNowRow,
+    activity: &yapfast_core::chat::Activity,
+    players: &HashMap<&str, usize>,
+) {
+    use yapfast_core::chat::ActivityKind;
+    let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
+    let playing = activity.kind == ActivityKind::Playing;
+    row.headline = match activity.kind {
+        ActivityKind::Playing => activity.name.to_string(),
+        ActivityKind::Listening => activity.heading(),
+        _ => activity.line().unwrap_or_else(|| activity.name.to_string()),
+    }
+    .into();
+    if playing {
+        row.since = activity_seconds(activity.start);
+    }
+    // A game's icon, as Discord asks the app for it.
+    if let Some(id) = &activity.application_id {
+        row.icon_url = format!("discord-app-icon:{id}").into();
+    }
+    row.large_url = text(&activity.large_image);
+    row.small_url = text(&activity.small_image);
+    if activity.spotify() {
+        song_lines(row, activity);
+    } else if activity.details.is_some() || activity.state.is_some() {
+        detail_lines(row, activity);
+    } else if playing {
+        // A game with no details: its name, and how many friends play it.
+        let count = players.get(activity.name.as_ref()).copied().unwrap_or(1);
+        row.title = activity.name.as_ref().into();
+        row.subtitle = format!("{count} {}", if count == 1 { "Person" } else { "People" }).into();
+        row.plain = true;
+        if row.large_url.is_empty() {
+            row.large_url = row.icon_url.clone();
+        }
+    }
+}
+
+/// A time in Unix milliseconds on ActivityClock; 0 for none.
+#[cfg(feature = "discord")]
+fn activity_seconds(ms: Option<u64>) -> i32 {
+    ms.map_or(0, |ms| {
+        i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
+    })
+}
+
+/// A Spotify song's card: its title, artists and album, and time left.
+#[cfg(feature = "discord")]
+fn song_lines(row: &mut ActiveNowRow, activity: &yapfast_core::chat::Activity) {
+    let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
+    row.title = activity.details.as_deref().unwrap_or(&activity.name).into();
+    row.subtitle = text(&activity.state);
+    row.detail = text(&activity.large_text);
+    row.end = activity_seconds(activity.end);
+}
+
+/// A rich presence's card: its details over its state and party, and the
+/// time left, else the time it's run.
+#[cfg(feature = "discord")]
+fn detail_lines(row: &mut ActiveNowRow, activity: &yapfast_core::chat::Activity) {
+    let state = match (&activity.state, activity.party) {
+        (Some(state), Some((size, most))) => format!("{state} ({size} of {most})"),
+        (None, Some((size, most))) => format!("{size} of {most}"),
+        (state, None) => state.as_deref().unwrap_or_default().to_owned(),
+    };
+    row.title = activity.details.as_deref().unwrap_or(&activity.name).into();
+    row.subtitle = state.into();
+    row.end = activity_seconds(activity.end);
+    if row.end == 0 {
+        row.start = activity_seconds(activity.start);
+    }
+}
+
+/// Someone's Discord looks as a row shows them: their name style's font and
+/// effect ids and two colours, and their decoration's and nameplate's
+/// pictures' addresses.
+pub(super) struct RowLooks {
+    pub font: i32,
+    pub effect: i32,
+    pub color_a: slint::Color,
+    pub color_b: slint::Color,
+    pub decoration: SharedString,
+    pub nameplate: SharedString,
+}
+
+pub(super) fn row_looks(tag: Option<&yapfast_core::chat::NameTag>) -> RowLooks {
+    let color = |rgb: Option<&u32>| {
+        rgb.map_or(slint::Color::default(), |&rgb| {
+            slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+        })
+    };
+    // A style with no colours keeps the name's own colour.
+    let effect = tag
+        .filter(|tag| !tag.colors.is_empty())
+        .map_or(0, |tag| i32::from(tag.effect.max(1)));
+    RowLooks {
+        font: tag.map_or(0, |tag| i32::from(tag.font)),
+        effect,
+        color_a: color(tag.and_then(|tag| tag.colors.first())),
+        color_b: color(tag.and_then(|tag| tag.colors.get(1).or(tag.colors.first()))),
+        decoration: tag
+            .and_then(|tag| tag.decoration.as_deref())
+            .unwrap_or_default()
+            .into(),
+        nameplate: tag
+            .and_then(|tag| tag.nameplate.as_deref())
+            .unwrap_or_default()
+            .into(),
+    }
 }

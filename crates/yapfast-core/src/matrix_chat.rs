@@ -1087,6 +1087,8 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                             _ => Role::Admin,
                         },
                         avatar: None,
+                        tag: None,
+                        bot: false,
                         group: None,
                         presence: None,
                         color: None,
@@ -1197,12 +1199,15 @@ async fn room_index(client: &Client) -> RoomIndex {
             ringing: vec![],
             incoming: false,
             avatar: None,
+            faces: Vec::new(),
             upload_limit: MAX_ATTACHMENT_BYTES,
             presence: None,
             activity: None,
             activities: Default::default(),
             parent: None,
             forum: false,
+            announcement: false,
+            rules: false,
             unlisted: false,
             preview: None,
         });
@@ -2027,6 +2032,10 @@ async fn publish_timeline(
                     Reply {
                         author: display_name(&embedded.sender, &embedded.sender_profile),
                         avatar: None,
+                        color: None,
+                        tag: None,
+                        attachments: false,
+                        ping: true,
                         body: summary(&embedded.content),
                         item,
                     }
@@ -2034,6 +2043,10 @@ async fn publish_timeline(
                 TimelineDetails::Error(_) => Reply {
                     author: String::new(),
                     avatar: None,
+                    color: None,
+                    tag: None,
+                    attachments: false,
+                    ping: true,
                     body: "The original message could not be loaded.".into(),
                     item,
                 },
@@ -2049,6 +2062,10 @@ async fn publish_timeline(
                     Reply {
                         author: String::new(),
                         avatar: None,
+                        color: None,
+                        tag: None,
+                        attachments: false,
+                        ping: true,
                         body: "Loading the original message...".into(),
                         item,
                     }

@@ -966,8 +966,8 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
     });
     let cell = row.images.row_data(0).unwrap();
     assert!(cell.loading);
-    // As the 360 by 270 preview will be: 1600 by 900 scaled to fit.
-    assert_eq!((row.gallery_width, row.gallery_height), (360, 203));
+    // As the 550 by 350 preview will be: 1600 by 900 scaled to fit.
+    assert_eq!((row.gallery_width, row.gallery_height), (550, 309));
     assert_eq!(row.files.row_count(), 0, "not a file card meanwhile");
     // One whose preview failed is a file card instead.
     let row = message_row_plain(&ChatMessage {
@@ -1232,10 +1232,10 @@ fn pointer_input_reaches_navigation_buttons() {
             .window()
             .dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
     };
-    click(32., 36.);
+    click(32., 68.);
     assert!(window.get_dms_selected());
     assert_eq!(window.get_sidebar_title(), "Direct messages");
-    click(32., 101.);
+    click(32., 133.);
     assert!(!window.get_dms_selected());
     assert_eq!(window.get_sidebar_title(), "Friends");
     window.hide().unwrap();
@@ -1836,10 +1836,10 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
             .dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
     };
     // The toggle ends the conversation header.
-    click(1080., 24.);
+    click(1080., 56.);
     assert!(!window.get_member_list());
     assert!(Layout::read(directory.path()).members_hidden);
-    click(1080., 24.);
+    click(1080., 56.);
     assert!(window.get_member_list());
     // Voice channels and one-to-one DMs have no member list.
     window.invoke_select_room("lounge".into());
@@ -3398,7 +3398,7 @@ fn a_profile_shows_activities_as_discord_cards() {
     );
     assert_eq!(rows[1].state, "In a party (2 of 4)");
     // The line under the name goes when it only names one of them.
-    assert!(profile::names_an_activity("Playing Factorio", &activities));
+    assert!(profile::names_an_activity("Factorio", &activities));
     assert!(!profile::names_an_activity("Playing Chess", &activities));
 }
 
@@ -3442,6 +3442,9 @@ fn friends_in_a_servers_voice_channel_show_where() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        announcement: false,
+        rules: false,
+        faces: Vec::new(),
         unlisted: false,
         preview: None,
     };
@@ -4055,9 +4058,9 @@ fn discord_categories_head_their_channels_and_open_their_menus() {
     assert_eq!(
         shown,
         [
-            ("TALK", "discord:10:4".into(), false),
+            ("Talk", "discord:10:4".into(), false),
             ("", "discord:10:4".into(), false),
-            ("LATER", "discord:10:5".into(), true),
+            ("Later", "discord:10:5".into(), true),
         ],
         "an empty category shows its heading alone, named by the category; \
          Staff is hidden from her"
@@ -4102,12 +4105,12 @@ fn categories_of_the_same_name_head_and_fold_their_own_channels() {
     let row = |heading: &str, name: &str, collapsed| (heading.into(), name.into(), collapsed);
     assert_eq!(
         shown(),
-        [row("TALK", "general", false), row("TALK", "Lounge", false)]
+        [row("Talk", "general", false), row("Talk", "Lounge", false)]
     );
     window.invoke_toggle_category("discord:10:5".into());
     assert_eq!(
         shown(),
-        [row("TALK", "general", false), row("TALK", "", true)],
+        [row("Talk", "general", false), row("Talk", "", true)],
         "only the second folds"
     );
 }
@@ -4154,8 +4157,8 @@ fn pinned_channels_leave_their_categories_for_the_top() {
         shown,
         [
             ("PINNED CHANNELS", "general", true, false),
-            ("TALK", "Lounge", false, false),
-            ("LATER", "", false, false),
+            ("Talk", "Lounge", false, false),
+            ("Later", "", false, false),
         ]
     );
     window.invoke_prepare_menu("discord:10:11".into(), false);
@@ -4201,7 +4204,7 @@ fn a_community_server_lists_the_channels_followed_and_offers_following() {
         .collect();
     assert_eq!(
         shown,
-        [("TALK", "Lounge"), ("LATER", "")],
+        [("Talk", "Lounge"), ("Later", "")],
         "#general isn't followed"
     );
     let texts = |id: &str| -> Vec<(String, bool)> {
@@ -4315,7 +4318,7 @@ fn empty_categories_go_where_discords_order_puts_them() {
         .iter()
         .map(|row| format!("{}{}", row.heading, if row.hidden { "!" } else { "" }))
         .collect();
-    assert_eq!(listed, ["", "A!", "B", "", "C!", "D", "E!"]);
+    assert_eq!(listed, ["", "a!", "B", "", "c!", "D", "e!"]);
 }
 
 #[test]
@@ -5855,7 +5858,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_new_theme();
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
-    assert_eq!(window.get_theme_start(), 4);
+    assert_eq!(window.get_theme_start(), 5);
     assert_eq!(window.get_theme_starts().row_count(), theme::BUILT_IN.len());
     let colours = window.get_theme_colours();
     assert_eq!(colours.row_count(), theme::Theme::NAMES.len());
@@ -5939,7 +5942,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     // A new theme from another start takes its colours and name.
     window.invoke_new_theme();
     assert_eq!(window.get_theme_name(), "Midnight copy");
-    window.invoke_theme_start_chosen(9);
+    window.invoke_theme_start_chosen(10);
     assert_eq!(window.get_theme_name(), "Sakura copy");
     assert_eq!(
         theme::Theme::shown(&window),
@@ -6119,6 +6122,9 @@ fn requests_list_someone_once_with_their_message() {
         activities: Default::default(),
         parent: None,
         forum: false,
+        announcement: false,
+        rules: false,
+        faces: Vec::new(),
         unlisted: false,
         preview: Some(Box::new(RequestPreview {
             text: format!("Hi from {person}"),
@@ -6713,13 +6719,13 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
     };
     // The GIF button in the composer opens the picker, 498px wide, its right
     // edge on the emoji button's.
-    click(992., 710.);
+    click(1030., 710.);
     assert_eq!(window.get_gif_picker_shown(), 498.);
     assert_eq!(window.get_gif_grid_width(), 474.);
     // Room for it up to 8px right of the server list, which is 80px from the
     // window's left edge.
     let room = window.get_gif_picker_room();
-    assert_eq!(room, 978.);
+    assert_eq!(room, 1016.);
     // Where the picker shows on screen: its right edge, which is the emoji
     // button's, must stay there however far its left edge is dragged.
     // The panel inside the popup, which spans all the room it could take:
@@ -6755,8 +6761,8 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
         let (x, width) = panel();
         x + width
     };
-    assert_eq!(panel(), (560., 498.));
-    // Its left edge is the right edge less its width, 1058 - 498 = 560, and
+    assert_eq!(panel(), (598., 498.));
+    // Its left edge is the right edge less its width, 1096 - 498 = 598, and
     // the handle starts there: press 4px into it, then move the pointer, as a
     // mouse reports it, several times. Each move must widen the picker by the
     // distance the pointer travelled: Slint measures the pointer against the
@@ -6789,56 +6795,56 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
         settle(&window);
     };
     // A press and a release that don't move it keep no width.
-    press(564.);
-    release(564.);
+    press(602.);
+    release(602.);
     assert!(chosen.borrow().is_empty());
-    press(564.);
-    moved(514.);
+    press(602.);
+    moved(552.);
     assert_eq!(window.get_gif_picker_shown(), 548.);
-    assert_eq!(panel(), (510., 548.));
-    moved(464.);
+    assert_eq!(panel(), (548., 548.));
+    moved(502.);
     assert_eq!(window.get_gif_picker_shown(), 598.);
-    assert_eq!(right_edge(), 1058.);
-    moved(414.);
+    assert_eq!(right_edge(), 1096.);
+    moved(452.);
     assert_eq!(window.get_gif_picker_shown(), 648.);
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(right_edge(), 1096.);
     // The grid takes the width it got: three columns of 200px.
     assert_eq!(window.get_gif_grid_width(), 624.);
-    release(414.);
+    release(452.);
     assert_eq!(window.get_gif_picker_width(), 648.);
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(right_edge(), 1096.);
     assert_eq!(*chosen.borrow(), [648.]);
-    // The emoji keep the width the picker opens at; the GIFs come back at
-    // the width dragged.
+    // The emoji keep their own width, 520px for Discord's nine columns; the
+    // GIFs come back at the width dragged.
     let tabs = found().2 + 30.;
-    click(410. + 110., tabs);
-    assert_eq!(panel(), (560., 498.));
+    click(448. + 110., tabs);
+    assert_eq!(panel(), (576., 520.));
     // A click on the panel's empty places keeps it open; one beside it, in
     // the room it could take, closes it.
-    click(560. + 300., tabs);
-    assert_eq!(panel(), (560., 498.));
+    click(576. + 300., tabs);
+    assert_eq!(panel(), (576., 520.));
     click(300., tabs);
     let inner = i_slint_core::window::WindowInner::from_pub(window.window());
     assert!(inner.active_popups().is_empty());
     // It opens again on the GIFs, at the width dragged.
-    click(992., 710.);
-    assert_eq!(panel(), (410., 648.));
+    click(1030., 710.);
+    assert_eq!(panel(), (448., 648.));
     // Back to the right, the edge follows the pointer to the width it opens
     // at, and no further.
-    press(414.);
-    moved(514.);
+    press(452.);
+    moved(552.);
     assert_eq!(window.get_gif_picker_shown(), 548.);
-    moved(700.);
+    moved(738.);
     assert_eq!(window.get_gif_picker_shown(), 498.);
-    release(700.);
+    release(738.);
     assert_eq!(window.get_gif_picker_width(), 498.);
     // Left again, the edge stops just past the server list.
-    press(564.);
+    press(602.);
     moved(0.);
     assert_eq!(window.get_gif_picker_shown(), room);
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(right_edge(), 1096.);
     release(0.);
     assert_eq!(window.get_gif_picker_width(), room);
-    assert_eq!(right_edge(), 1058.);
+    assert_eq!(right_edge(), 1096.);
     window.hide().unwrap();
 }

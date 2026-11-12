@@ -69,12 +69,13 @@ export component HeaderSearch inherits Rectangle {
     callback search(string);
     callback clear;
     init => { if root.autofocus { input.focus(); } }
-    width: input.has-focus || root.text != "" ? 240px : 180px;
+    // As Discord's: a rounded box with an edge, wider while searching.
+    width: input.has-focus || root.text != "" ? 280px : 240px;
     animate width { duration: Theme.quick; }
-    height: 28px; border-radius: 6px;
-    background: Theme.sunken;
-    border-width: input.has-focus ? 1px : 0px;
-    border-color: Theme.accent.with-alpha(0.8);
+    height: 32px; border-radius: 8px;
+    background: Theme.raised;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
     Text {
         x: 8px; width: root.width - 36px; height: root.height;
         visible: root.text == "";

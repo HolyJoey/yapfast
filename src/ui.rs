@@ -45,6 +45,7 @@ mod callbacks;
 mod channel_settings;
 mod games;
 mod gifs;
+mod history;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -140,6 +141,7 @@ pub fn run(
         .select()
         .context("could not select the Slint desktop backend")?;
     slint::set_xdg_app_id(crate::icon::APP_ID).context("could not set Yapfast's app ID")?;
+    let font = crate::ui_font::family(&root);
     let gpu = plan.renderer == graphics::Renderer::Gpu;
     let failed = |error: slint::PlatformError, context: &'static str| -> Result<Exit> {
         let reason = error.to_string();
@@ -163,6 +165,7 @@ pub fn run(
         Ok(window) => window,
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
+    window.set_ui_font(font.into());
     title_bar::show(&window, system_title_bar);
     if let Some(placement) = &placement {
         placement::place(&window, placement);
@@ -179,6 +182,12 @@ pub fn run(
         autostart::refresh();
     }
     prepare(&window);
+    #[cfg(feature = "discord")]
+    let _font_download = if preview {
+        None
+    } else {
+        crate::ui_font::fetch(&runtime, &root, window.as_weak())
+    };
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
     watch_window(&window, &adapter);
@@ -951,6 +960,10 @@ struct Layout {
     game_executables: Vec<(String, String)>,
     /// Messages from people this account blocked don't show at all.
     hide_blocked: bool,
+    /// The friends list's tip about blocked accounts was closed.
+    friends_tip_closed: bool,
+    /// The emoji picker's skin tone, 0 for none to 5.
+    skin_tone: u8,
     /// A message that notifies while Yapfast isn't in front flashes the
     /// taskbar; on unless turned off.
     flash_taskbar: Option<bool>,
@@ -1037,6 +1050,8 @@ struct Layout {
     /// Starting Yapfast again on this folder starts another, rather than
     /// showing the running one's window; see [`crate::instance`].
     multiple_windows: bool,
+    /// Decorations, nameplates and name styles show; on unless turned off.
+    profile_looks: Option<bool>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1190,6 +1205,8 @@ impl Layout {
         self.apply_custom_games(window);
         window.set_show_idle(self.show_idle.unwrap_or(true));
         window.set_hide_blocked(self.hide_blocked);
+        window.set_friends_tip(!self.friends_tip_closed);
+        window.set_skin_tone(i32::from(self.skin_tone.min(5)));
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
@@ -1268,6 +1285,7 @@ impl Layout {
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
+        window.set_profile_looks(self.profile_looks.unwrap_or(true));
         title_bar::show(window, self.system_title_bar);
         let each: Vec<i32> = Sound::ALL
             .iter()
@@ -1397,6 +1415,8 @@ struct Models {
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
+    /// Friends doing something, for Active Now.
+    friends_active: Rc<VecModel<ActiveNowRow>>,
     /// Those the Discord account blocked, for Settings.
     blocked: Rc<VecModel<BlockedRow>>,
     /// Browse Channels' rows, after its search.
@@ -1453,6 +1473,7 @@ impl Models {
         window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
+        window.set_friends_active(ModelRc::from(self.friends_active.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
         window.set_browse_rows(ModelRc::from(self.browse_rows.clone()));
         window.set_microphones(ModelRc::from(self.microphones.clone()));
@@ -1469,10 +1490,13 @@ struct Icons {
     text: slint::Image,
     thread: slint::Image,
     forum: slint::Image,
+    announcement: slint::Image,
+    rules: slint::Image,
     voice: slint::Image,
     lock: slint::Image,
     read: slint::Image,
     call: slint::Image,
+    video: slint::Image,
     profile: slint::Image,
     copy: slint::Image,
     befriend: slint::Image,
@@ -1534,6 +1558,8 @@ struct Adapter {
     call_timer: call_timer::CallTimer,
     /// Ticks ActivityClock while a profile on screen times an activity.
     activity_clock: slint::Timer,
+    /// The places shown before, for the title bar's back and forward.
+    history: history::History,
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
@@ -1703,6 +1729,10 @@ impl Adapter {
             ))?,
             text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
+            announcement: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/megaphone.svg"
+            ))?,
+            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
             forum: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
@@ -1710,6 +1740,7 @@ impl Adapter {
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
+            video: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/video.svg"))?,
             profile: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user.svg"))?,
             copy: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/copy.svg"))?,
             befriend: slint::Image::load_from_svg_data(include_bytes!(
@@ -1794,6 +1825,7 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                history: history::History::default(),
                 navigation: Navigation::default(),
                 forwarding: false,
                 selection_version: 0,
@@ -2542,7 +2574,7 @@ fn dm_detail(room: &yapfast_core::chat::ChatRoom) -> (SharedString, SharedString
     }
     if room.person.is_none() {
         return (
-            format!("{} members", room.members).into(),
+            format!("{} Members", room.members).into(),
             SharedString::default(),
         );
     }

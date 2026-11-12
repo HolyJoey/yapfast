@@ -357,10 +357,28 @@ const STICKER_LOTTIE = "1400000000000000312";
 const ALICE = "1400000000000000001";
 
 // Dave has no avatar, so he gets a default one; Carol set another for the server.
-type User = { id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean };
+type User = {
+  id: string; username: string; global_name: string | null; avatar: string | null; bot?: boolean;
+  // What Discord's user objects carry for looks: a server tag, an avatar
+  // decoration, a nameplate and a display name style.
+  primary_guild?: { identity_guild_id: string; identity_enabled: boolean; tag: string; badge: string };
+  avatar_decoration_data?: { asset: string; sku_id: string; expires_at: number | null };
+  collectibles?: { nameplate: { asset: string; label: string; palette: string; sku_id: string; expires_at: number | null } };
+  display_name_styles?: { font_id: number; effect_id: number; colors: number[] };
+};
 const users: Record<string, User> = {
   alice: { id: ALICE, username: "alice", global_name: "Alice", avatar: "alice1" },
-  bob: { id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1" },
+  // Bob wears Server's tag, a decoration round his avatar, a nameplate and
+  // a display name style: 8Bit, in a gradient.
+  bob: {
+    id: "1400000000000000002", username: "bob", global_name: "Bob", avatar: "bob1",
+    primary_guild: { identity_guild_id: "1400000000000000100", identity_enabled: true, tag: "SKA", badge: "skabadge" },
+    avatar_decoration_data: { asset: "a_bobdecoration", sku_id: "1400000000000000990", expires_at: null },
+    collectibles: {
+      nameplate: { asset: "nameplates/nameplates_v3/bonsai/", label: "Bonsai", palette: "bubble_gum", sku_id: "1400000000000000991", expires_at: null },
+    },
+    display_name_styles: { font_id: 8, effect_id: 2, colors: [0xff7a59, 0xffd23f] },
+  },
   carol: { id: "1400000000000000003", username: "carol", global_name: "Carol", avatar: "carol1" },
   dave: { id: "1400000000000000004", username: "dave", global_name: "Dave", avatar: null },
 };
@@ -580,10 +598,10 @@ function timeOf(id: string): number {
 
 function wireUser(user: User) {
   return {
+    avatar_decoration_data: null,
     ...user,
     discriminator: "0",
     public_flags: 0,
-    avatar_decoration_data: null,
   };
 }
 
@@ -7618,6 +7636,10 @@ const server = Bun.serve<SocketData>({
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
     // Activities' pictures: games' icons and assets, and Spotify's covers.
+    // Looks people wear: server tags' badges, avatar decorations and nameplates.
+    if (req.method === "GET" && /^\/(guild-tag-badges\/\d+\/[a-z0-9]+\.png|avatar-decoration-presets\/[a-z0-9_]+\.png|assets\/collectibles\/[a-z0-9_/]+\/static\.png)$/.test(path)) {
+      return new Response(picture(path), { headers: { "content-type": "image/png" } });
+    }
     if (req.method === "GET" && /^\/(app-icons\/\d+\/[a-z0-9]+\.png|app-assets\/\d+\/[a-z0-9]+\.png|spotify\/[A-Za-z0-9]+)$/.test(path)) {
       return new Response(picture(path), { headers: { "content-type": "image/png" } });
     }

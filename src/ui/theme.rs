@@ -179,6 +179,47 @@ const BONFIRE: Theme = Theme {
     avatar: rgb(0x5c5e66),
 };
 
+/// Discord's Onyx theme (`.theme-midnight` in its web client's CSS), mapped as
+/// Bonfire is: black grounds, its dimmer text ramp, and its washes
+/// (`hsl(240 4% 61%)` at 12%, 20% and so on) laid over black.
+const ONYX: Theme = Theme {
+    dark: true,
+    rail: rgb(0x000000),
+    sidebar: rgb(0x000000),
+    panel: rgb(0x000000),
+    chat: rgb(0x000000),
+    stage: rgb(0x000000),
+    raised: rgb(0x0a0a0c),
+    field: rgb(0x101013),
+    sunken: rgb(0x000000),
+    hover: rgb(0x121213),
+    active: rgb(0x1e1e20),
+    row_hover: rgb(0x0c0c0d),
+    line: rgb(0x1e1e20),
+    edge: rgb(0x121213),
+    text: rgb(0xd4d5d8),
+    secondary: rgb(0x96979e),
+    muted: rgb(0x81828a),
+    faint: rgb(0x5c5e66),
+    accent: rgb(0x5865f2),
+    accent_hover: rgb(0x4452bb),
+    on_accent: rgb(0xffffff),
+    accent_soft: rgba(0x5865f226),
+    danger: rgb(0xd22d39),
+    danger_hover: rgb(0xa9232e),
+    on_danger: rgb(0xffffff),
+    live: rgb(0x23a55a),
+    loud: rgb(0xf0b232),
+    link: rgb(0x2781e7),
+    button_default: rgb(0x1b1b1d),
+    button_default_hover: rgb(0x262628),
+    overlay: rgb(0xffffff),
+    shimmer: rgba(0xffffff10),
+    reply_spine: rgb(0x2d2d30),
+    tooltip: rgb(0x121214),
+    avatar: rgb(0x5c5e66),
+};
+
 /// Catppuccin's darkest flavour, with mauve for the accent.
 const CATPPUCCIN_MOCHA: Theme = Theme {
     dark: true,
@@ -502,7 +543,7 @@ pub struct BuiltIn {
 
 /// The themes Yapfast comes with, as Appearance lists them: the dark ones, then
 /// the light ones. The palettes credited in docs/themes.md are MIT licensed.
-pub const BUILT_IN: [BuiltIn; 10] = [
+pub const BUILT_IN: [BuiltIn; 11] = [
     BuiltIn {
         id: "yap",
         name: "Yap",
@@ -512,6 +553,11 @@ pub const BUILT_IN: [BuiltIn; 10] = [
         id: "bonfire",
         name: "Bonfire",
         theme: BONFIRE,
+    },
+    BuiltIn {
+        id: "onyx",
+        name: "Onyx",
+        theme: ONYX,
     },
     BuiltIn {
         id: "catppuccin-mocha",

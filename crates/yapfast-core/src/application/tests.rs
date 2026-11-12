@@ -281,6 +281,8 @@ fn members_belong_to_the_selected_text_room() {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
+        bot: false,
     };
     app.apply(Event::Members {
         room: "games".into(),
@@ -1944,6 +1946,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
                 presence: None,
                 activity: None,
                 activities: Default::default(),
+                tag: None,
             }]
             .into()
         } else {
@@ -2950,6 +2953,8 @@ fn member(id: &str, name: &str) -> ChatMember {
         activities: Default::default(),
         roles: Default::default(),
         timed_out_until: None,
+        tag: None,
+        bot: false,
     }
 }
 
@@ -3847,6 +3852,8 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             activities: Default::default(),
             roles: Default::default(),
             timed_out_until: None,
+            tag: None,
+            bot: false,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -4020,6 +4027,7 @@ fn discord_friends_are_listed_and_messaged() {
         presence,
         activity: None,
         activities: Default::default(),
+        tag: None,
     };
     let snapshot = |dms: &[(&str, &str)]| Snapshot {
         status: Status::Online,
@@ -4059,6 +4067,7 @@ fn discord_friends_are_listed_and_messaged() {
             presence: Some(chat::Presence::Idle),
             activity: Some("making tea".into()),
             activities: Default::default(),
+            tag: None,
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -5647,6 +5656,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         presence: None,
         activity: None,
         activities: Default::default(),
+        tag: None,
     };
     let mut conversations = vec![
         Conversation {
