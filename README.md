@@ -36,8 +36,12 @@ so it isn't in this repository or in the downloads. The first time Yapfast
 starts, it downloads the same font files Discord's web client loads, from
 `discord.com`, checks them against the checksums in
 [`ui_font.rs`](crates/yapfast-discord/src/ui_font.rs), and keeps them in its
-data folder. Until then (offline, say) it uses its own typeface, Atkinson
-Hyperlegible Next, and switches as soon as the download finishes.
+data folder. That's 10 files, about 1 MB together, so it usually takes a
+second. There's no popup: you just see the text switch to gg sans once,
+without a restart. If the download fails (offline, say), Yapfast keeps its own
+typeface, Atkinson Hyperlegible Next, notes it in its log and tries again on
+the next start. The downloaded files are in the `fonts` folder of Yapfast's
+data folder.
 
 The fonts for display name styles are free fonts under the SIL Open Font
 License; see [`ui/fonts/styles`](ui/fonts/styles/README.md).
