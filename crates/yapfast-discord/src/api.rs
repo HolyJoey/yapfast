@@ -261,11 +261,16 @@ impl Api {
             .user_agent(client::user_agent())
             .cookie_provider(crate::cookies::jar())
             .connect_timeout(std::time::Duration::from_secs(15))
-            // Requests to a host share one HTTP/2 connection. While some are
-            // waiting, a ping that goes unanswered closes it, so the next
-            // request opens a new one rather than waiting on a lost one.
+            // Requests to a host share one HTTP/2 connection. A ping that goes
+            // unanswered closes it, so the next request opens a new one rather
+            // than waiting on a lost one. It's pinged while idle too, so the
+            // connection stays open between messages: a message sent after a
+            // quiet minute goes at once, without setting up TLS again first.
             .http2_keep_alive_interval(std::time::Duration::from_secs(10))
             .http2_keep_alive_timeout(std::time::Duration::from_secs(10))
+            .http2_keep_alive_while_idle(true)
+            // reqwest otherwise drops a connection idle for 90 seconds.
+            .pool_idle_timeout(None)
             .build()
             .context("could not set up HTTPS")?;
         let base = match client::test_server() {
