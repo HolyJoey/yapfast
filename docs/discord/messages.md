@@ -109,11 +109,11 @@ moving between such channels shows the same list and asks Discord for
 nothing, and an update applies only to the list it names. Yapfast keeps the last
 40 lists. An INVALIDATE, by which Discord stops sending rows, leaves them as
 they were, to show when their channel is again. One Discord still sends, or
-sent within 10 minutes, shows without asking again. An older one shows at
+sent within 30 seconds, shows without asking again. An older one shows at
 once while Yapfast subscribes, and Discord's sync replaces it. A list
-on screen that Discord doesn't send is asked for again once it's 10 minutes
-old. When no list comes within 8 seconds of opening a channel, the panel
-says Discord didn't send one instead of loading on, and the header says
+on screen that Discord doesn't send is asked for again once it's 30 seconds
+old, so it doesn't miss who came online or left a role meanwhile. When
+no list comes within 8 seconds of opening a channel, the panel says Discord didn't send one instead of loading on, and the header says
 "Members" until a count is known. A build without Matrix shows the Discord
 account's name, avatar and connection in the bottom-left panel.
 

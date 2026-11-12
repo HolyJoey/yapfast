@@ -27,8 +27,11 @@ use crate::{
 /// Member lists kept for channels shown again.
 const LISTS: usize = 40;
 /// How long a member list Discord sent stands without asking again. A list
-/// Discord still sends stays current however old.
-const LIST_FRESH: Duration = Duration::from_secs(10 * 60);
+/// Discord still sends stays current however old. One it stopped sending
+/// misses who came online, went offline or changed roles since, so it's
+/// asked for again soon: this only spares a subscription when flicking
+/// back and forth between channels, well within the gateway's limit.
+const LIST_FRESH: Duration = Duration::from_secs(30);
 
 pub(super) struct MemberLists {
     live: broadcast::Sender<Live>,
