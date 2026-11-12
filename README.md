@@ -1,3 +1,166 @@
+> [!NOTE]
+> **This is HolyJoey's unofficial fork of [Yapfast](https://github.com/yapfast/yapfast).**
+> It makes Yapfast look and feel as much like Discord's own app as possible.
+> It isn't made or supported by Yapfast's developers or by Discord, so please
+> report problems with this fork [here](https://github.com/HolyJoey/yapfast/issues),
+> not upstream. Upstream's own README follows further down.
+
+# Yapfast, Discord look
+
+## What's different from upstream
+
+- **Friends page like Discord's:** the Active Now column, a ⋮ menu on each
+  friend (video call, voice call, remove friend), a Pending tab, the game and
+  custom status together on one line, and stacked avatars for group DMs.
+- **Discord's title bar,** with back/forward history and the page's name.
+- **Servers:** server tags after names, avatar decorations, nameplates, and
+  display name fonts and colours. Turn all of these off in
+  **Settings → Advanced → Show profile styles**. Also bot APP badges,
+  channel icons for rules and announcements, an invite button on channels, and
+  replies that show the colour, the tag and attachments of the message they
+  answer.
+- **Emoji picker like Discord's:** its categories, 9 columns, skin tones and
+  `:shortcode:` names.
+- **Composer:** no send button (Enter sends), and messages no longer show
+  "Sending…" while Discord confirms them.
+- **Discord's typeface, gg sans,** and Discord's colours: the idle dot, the
+  "New" line and the Onyx theme.
+- **Fixes:** member lists refresh after 30 seconds rather than 10 minutes, and
+  the connection to Discord stays open while idle, so a message after a quiet
+  minute goes out without a new handshake.
+
+### About gg sans
+
+gg sans is Discord's own typeface, and its licence doesn't allow passing it on,
+so it isn't in this repository or in the downloads. The first time Yapfast
+starts, it downloads the same font files Discord's web client loads, from
+`discord.com`, checks them against the checksums in
+[`ui_font.rs`](crates/yapfast-discord/src/ui_font.rs), and keeps them in its
+data folder. Until then (offline, say) it uses its own typeface, Atkinson
+Hyperlegible Next, and switches as soon as the download finishes.
+
+The fonts for display name styles are free fonts under the SIL Open Font
+License; see [`ui/fonts/styles`](ui/fonts/styles/README.md).
+
+## Download
+
+Every [release](https://github.com/HolyJoey/yapfast/releases/latest) has:
+
+| System | File | How |
+| --- | --- | --- |
+| Debian 13, Ubuntu 24.04, Fedora 40, Mint 22 and newer, and other distros with glibc 2.39+ | `Yapfast-…-x86_64.AppImage` | `chmod +x` it (or "Allow executing" in its properties) and run it. It adds itself to your app menu. |
+| Arch Linux and its derivatives | `yapfast-…-x86_64.pkg.tar.zst` | `sudo pacman -U yapfast-…-x86_64.pkg.tar.zst` |
+| Windows 10 and 11 (beta) | `Yapfast-…-windows-x64.zip` | Unzip it anywhere and run `yapfast.exe`. It isn't signed, so SmartScreen may ask: **More info → Run anyway**. |
+
+Older distros, such as Debian 12 or Ubuntu 22.04, need to
+[build it themselves](#build-it-from-source). There's no macOS version.
+
+Then link your Discord account by scanning the QR code with Discord's phone
+app (**Settings → Scan QR Code**). Read
+[Will Discord ban me?](#will-discord-ban-me) first.
+
+Check a download against the release's checksums:
+
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+### Versions
+
+A version is the upstream release it's based on, then `-dl.` and this fork's
+release number: `0.3.0-dl.1` is upstream 0.3.0 with this fork's first
+release of changes. A new upstream release becomes `…-dl.1` again.
+
+The releases are built by GitHub Actions
+([`release.yml`](.github/workflows/release.yml)) on GitHub's machines,
+from the tagged commit, not on anyone's own PC.
+
+## Build it from source
+
+You need about 40 GB of disk space, 8 GB of RAM (16 GB is better), and 15 to
+40 minutes for the first build.
+
+### Linux, with Nix (the way the releases are built)
+
+Install [Nix](https://nixos.org/download), then:
+
+```sh
+git clone https://github.com/HolyJoey/yapfast.git
+cd yapfast
+# The Linux AppImage, into target/dist/linux
+scripts/build-appimage
+# Or just run it
+nix develop path:./nix --command cargo run --locked --release --no-default-features --features desktop,discord
+```
+
+### Linux, without Nix
+
+Install [rustup](https://rustup.rs); it fetches Rust 1.97.1 from
+`rust-toolchain.toml` itself. Then the build tools and libraries:
+
+```sh
+# Debian and Ubuntu
+sudo apt install build-essential clang cmake git curl python3 nasm protobuf-compiler \
+  pkg-config libfontconfig-dev libglib2.0-dev libpulse-dev libwayland-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev libx11-dev libxcb1-dev libxcursor-dev \
+  libxi-dev libgl-dev libegl-dev libasound2-dev
+# Fedora
+sudo dnf install gcc gcc-c++ clang cmake git curl python3 nasm protobuf-compiler \
+  pkgconf-pkg-config fontconfig-devel glib2-devel pulseaudio-libs-devel wayland-devel \
+  libxkbcommon-devel libxkbcommon-x11-devel libX11-devel libxcb-devel \
+  libXcursor-devel libXi-devel libglvnd-devel alsa-lib-devel
+# Arch
+sudo pacman -S --needed base-devel clang cmake git curl python nasm protobuf pkgconf \
+  fontconfig glib2 libpulse wayland libxkbcommon libxkbcommon-x11 libx11 libxcb \
+  libxcursor libxi libglvnd alsa-lib
+```
+
+These follow the dependencies of upstream's [Arch package](packaging/arch/PKGBUILD).
+This fork is developed on Debian 13; the Fedora list is untested, so a missing
+`-devel` package shows up as a build error naming it.
+
+Then build and install it:
+
+```sh
+git clone https://github.com/HolyJoey/yapfast.git
+cd yapfast
+export CC=clang CXX=clang++ CFLAGS="-ffile-prefix-map=$HOME=/build" CXXFLAGS="-ffile-prefix-map=$HOME=/build"
+cargo build --locked --release --no-default-features --features desktop,discord \
+  --config "build.rustflags=['--remap-path-prefix=$HOME=/build']"
+install -Dm755 target/release/yapfast ~/.local/bin/yapfast
+```
+
+Cargo downloads the pinned Skia and libwebrtc archives itself. The
+path flags keep your home folder's path, and so your user name, out of the
+program, in case you share it: check with `strings target/release/yapfast | grep "$HOME"`,
+which should print nothing. Yapfast adds itself to your app menu
+the first time it runs. [Without Nix](#without-nix) below has the details.
+
+### Windows
+
+Windows builds are cross-compiled from Linux, with Nix:
+
+```sh
+nix develop path:./nix#windows --command scripts/build-windows discord
+```
+
+The ZIP and installer land in `target/dist/discord`. Building on Windows
+itself is possible but only meant for development; see
+[docs/building.md](docs/building.md#windows).
+
+### Updating to a new upstream version
+
+This fork keeps its changes on the `discord-look` branch, on top of
+upstream's release tag. `main` follows upstream's `main`.
+
+```sh
+git remote add upstream https://github.com/yapfast/yapfast.git
+git fetch upstream --tags
+git rebase --onto v0.4.0 v0.3.0 discord-look
+```
+
+---
+
 <p align="center">
   <img src="packaging/icon.svg" width="96" height="96" alt="">
 </p>

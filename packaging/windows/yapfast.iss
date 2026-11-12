@@ -26,8 +26,8 @@ AppVersion={#AppVersion}
 AppVerName={#DisplayName} {#AppVersion}
 AppPublisher=Yapfast
 AppPublisherURL=https://yapfast.com
-AppSupportURL=https://github.com/yapfast/yapfast/issues
-AppUpdatesURL=https://github.com/yapfast/yapfast/releases
+AppSupportURL=https://github.com/HolyJoey/yapfast/issues
+AppUpdatesURL=https://github.com/HolyJoey/yapfast/releases
 VersionInfoVersion={#VersionNumber}
 ; Per user: %LOCALAPPDATA%\Programs\Yapfast, with no UAC prompt.
 PrivilegesRequired=lowest

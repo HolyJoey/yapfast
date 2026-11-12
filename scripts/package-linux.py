@@ -69,9 +69,9 @@ def main():
         shutil.copy2(ROOT / "LICENSE", doc / "LICENSE")
         (doc / "SOURCE.txt").write_text(
             f"The source code of this build of Yapfast {version} is published with it:\n\n"
-            f"  https://github.com/yapfast/yapfast/releases/tag/v{version}\n"
+            f"  https://github.com/HolyJoey/yapfast/releases/tag/v{version}\n"
             f"  {source_path.name}, SHA-256 in BUILD.json\n\n"
-            "and in the repository, https://github.com/yapfast/yapfast. The licenses folder\n"
+            "and in the repository, https://github.com/HolyJoey/yapfast. The licenses folder\n"
             "holds every dependency's own license and notices.\n",
             encoding="utf-8",
         )

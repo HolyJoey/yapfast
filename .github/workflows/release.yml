@@ -1,16 +1,19 @@
-# A nightly release of main, made on demand: Actions > Nightly > Run workflow.
-# It builds the Linux AppImage and the Windows ZIP as the releases are built, and publishes them as a prerelease of the next minor
-# version, such as v0.2.0-nightly.20261020.5. See docs/packaging.md.
-name: Nightly
+# A release of this fork, made by pushing a tag such as v0.3.0-dl.1: the
+# upstream version it's based on, then -dl. and this fork's release number.
+# It builds the Linux AppImage, the Arch package and the Windows ZIP on
+# GitHub's runners, as upstream's nightly does (docs/packaging.md), and
+# publishes them with their checksums and the source.
+name: Release
 
 on:
-  workflow_dispatch:
+  push:
+    tags: ["v*-dl.*"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly
+  group: release-${{ github.ref_name }}
 
 jobs:
   version:
@@ -20,15 +23,11 @@ jobs:
       commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: main
       - id: version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          current=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          IFS=. read -r major minor _ <<< "${current%%-*}"
-          # The run number orders nightlies of one day and keeps each tag
-          # new; the release's title names the commit.
-          echo "version=$major.$((minor + 1)).0-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   linux:
@@ -47,8 +46,6 @@ jobs:
         with:
           github_access_token: ${{ github.token }}
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
-      # A fresh runner installs Rust and fetches the crates for longer than
-      # scripts/package-linux.py gives cargo metadata.
       - name: Fetch the toolchain and crates
         run: nix develop path:./nix --command cargo fetch --locked
       - run: scripts/build-appimage
@@ -84,14 +81,12 @@ jobs:
             .local/windows/skia-static-production/build.json
             .local/windows/skia-static-production/prepared
           key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
-      # The compiled dependencies. Before scripts/set-version, which changes
-      # Cargo.lock, so the key changes only with the dependencies.
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
       # Wine doesn't start on the runner (kernel32.dll, c0000135), so Inno
-      # Setup can't make the installer there.
+      # Setup can't make the installer there: Windows gets the portable ZIP.
       - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
       - uses: actions/upload-artifact@v4
         with:
@@ -111,17 +106,11 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      # Only for the notes' jq program.
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.version.outputs.commit }}
-          sparse-checkout: .github
       - uses: actions/download-artifact@v4
         with:
           path: dist
       - name: Publish
         run: |
-          # A failed request must fail the job, not leave the list empty.
           set -o pipefail
           # Both jobs zip the commit's source; SOURCE.txt and each BUILD.json
           # name the one file the release carries.
@@ -130,28 +119,15 @@ jobs:
           mv dist/linux/Yapfast-* dist/linux/yapfast-*.pkg.tar.zst release/
           mv dist/windows/Yapfast-*-windows-x64* release/
           (cd release && sha256sum Yapfast-* yapfast-*.pkg.tar.zst > SHA256SUMS.txt)
-          # The newest nightly, or before the first one the latest release.
-          previous=$(gh release list --exclude-drafts --limit 100 --json tagName \
-            --jq '[.[].tagName | select(contains("-nightly."))][0] // empty')
-          if [ -z "$previous" ]; then
-            previous=$(gh release view --json tagName --jq .tagName || true)
-          fi
+          upstream="${VERSION%%-dl.*}"
           {
-            echo "A nightly build of main at $COMMIT, for testing what's coming in the next release. Expect rough edges."
+            echo "Yapfast $VERSION: upstream Yapfast v$upstream with this fork's changes (see the README). Unofficial; not made or supported by Yapfast's or Discord's developers."
             echo
-            if [ -n "$previous" ]; then
-              echo "## Changes since $previous"
-              echo
-              # The API lists at most 250 commits; the link below has them all.
-              gh api "repos/$GH_REPO/compare/$previous...$COMMIT" | jq -r -f .github/nightly-notes.jq
-              echo "All changes: https://github.com/$GH_REPO/compare/$previous...$COMMIT"
-              echo
-            fi
-            echo "AppImage updaters take the AppImage to the latest stable release, not to newer nightlies."
+            echo "- **Linux** (Debian 13, Ubuntu 24.04, Fedora 40 and newer): the \`.AppImage\`. \`chmod +x\` it and run it."
+            echo "- **Arch Linux**: \`sudo pacman -U\` the \`.pkg.tar.zst\`."
+            echo "- **Windows 10 and 11** (beta): unzip the \`windows-x64\` ZIP and run \`yapfast.exe\`."
             echo
-            echo "On Arch Linux, install the .pkg.tar.zst with \`sudo pacman -U\` and its link."
+            echo "Check a download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`. The source is the \`source.zip\`."
           } > notes.md
-          # Titled as the stable releases are, with the commit: the version
-          # already says it's a nightly.
-          gh release create "v$VERSION" release/* --prerelease --target "$COMMIT" \
-            --title "Yapfast $VERSION (${COMMIT:0:7})" --notes-file notes.md
+          gh release create "v$VERSION" release/* --target "$COMMIT" \
+            --title "Yapfast $VERSION" --notes-file notes.md

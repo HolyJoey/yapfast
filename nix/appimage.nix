@@ -30,7 +30,7 @@ let
     sha256 = "0396xi3km1yd0z4329lbjxmv82ddc40gd0x8hca0ylcj7i28pjig";
   };
   # Where AppImageUpdate and the AppImage managers look for a newer release.
-  updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
+  updateInformation = "gh-releases-zsync|HolyJoey|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
   # What scripts/package-linux.py adds to the release's BUILD.json.
   build = builtins.toJSON {
     glibc_floor = glibcFloor;

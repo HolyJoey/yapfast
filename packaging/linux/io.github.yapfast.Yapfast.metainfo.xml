@@ -21,8 +21,8 @@
   </description>
   <launchable type="desktop-id">io.github.yapfast.Yapfast.desktop</launchable>
   <url type="homepage">https://yapfast.com</url>
-  <url type="bugtracker">https://github.com/yapfast/yapfast/issues</url>
-  <url type="vcs-browser">https://github.com/yapfast/yapfast</url>
+  <url type="bugtracker">https://github.com/HolyJoey/yapfast/issues</url>
+  <url type="vcs-browser">https://github.com/HolyJoey/yapfast</url>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/yapfast/yapfast/main/docs/images/yapfast.png</image>
