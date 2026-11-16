@@ -86,7 +86,7 @@ fn server_settings_open_only_with_a_page_she_may_change() {
     grant_mods(&mut app, yapfast_discord::ready::permission::MANAGE_GUILD);
     let choices = app.menu_choices("discord:10");
     let at = |choice| choices.iter().position(|known| *known == choice).unwrap();
-    assert!(at(HideMuted) < at(ServerSettings) && at(ServerSettings) < at(EditServerProfile));
+    assert!(at(HideMuted) < at(EditServerProfile) && at(EditServerProfile) < at(ServerSettings));
     assert_eq!(
         app.header_choices("discord:10")[0],
         ServerSettings,

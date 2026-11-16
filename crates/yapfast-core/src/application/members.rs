@@ -202,6 +202,9 @@ impl Application {
                 Some(_) => choices.push(MenuChoice::AddNickname),
                 None => {}
             }
+            if self.spotify_link(user).is_some() {
+                choices.push(MenuChoice::PlayOnSpotify);
+            }
         }
         // In a voice channel they're in: muting them or their soundboard
         // for this account, or its own mute and deafen in the call it's in
@@ -224,7 +227,11 @@ impl Application {
         if !me {
             choices.extend(state.relationship_choices(user));
         }
-        if self.may(place, Permission::ManageRoles) && !self.server_roles(place).is_empty() {
+        // Discord's lists a member's roles to anyone, and lets those who may
+        // manage roles give and take them there.
+        let manages_roles =
+            self.may(place, Permission::ManageRoles) && !self.server_roles(place).is_empty();
+        if manages_roles || !self.member_roles(place, user).is_empty() {
             choices.push(MenuChoice::Roles);
         }
         if in_voice && !self.move_targets(place, user).is_empty() {
@@ -262,8 +269,28 @@ impl Application {
         choices
     }
 
+    /// The page of the song someone listens to on Spotify, as their
+    /// presence says.
+    pub fn spotify_link(&self, user: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        {
+            let person = self.state.person(user)?;
+            person
+                .activities
+                .iter()
+                .find(|activity| activity.spotify())
+                .and_then(|activity| activity.link.as_deref())
+                .map(str::to_owned)
+        }
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            None
+        }
+    }
+
     /// Whether a member's call can start from their menu: their DM's, or a
-    /// new DM's with a friend.
+    /// new DM's with anyone it may message, as Discord's offers.
     #[cfg(feature = "discord")]
     fn can_call(&self, user: &str) -> bool {
         let state = &self.state;
@@ -272,7 +299,13 @@ impl Application {
                 state.can_join_voice(&dm.id)
                     && !(state.voice.active() && state.voice.room.as_ref() == Some(&dm.id))
             }
-            None => state.relation(user) == Relation::Friend && state.discord_online && !state.busy,
+            // Discord's menu offers a call to anyone it may message.
+            None => {
+                state.relation(user) != Relation::Me
+                    && !state.is_blocked(user)
+                    && state.discord_online
+                    && !state.busy
+            }
         }
     }
 

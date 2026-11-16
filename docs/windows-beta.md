@@ -13,7 +13,7 @@ installing one replaces the other, and both keep one data folder.
 `Yapfast-VERSION-full-preview-windows-x64-setup.exe`. The installer needs no administrator
 rights: it installs for the current user into `%LOCALAPPDATA%\Programs\Yapfast`,
 adds Yapfast to the Start menu, optionally to the desktop, and starts it when
-the person signs in unless they untick that. Settings → Advanced turns that
+the person signs in unless they untick that. Settings → System turns that
 on and off later ([the tray](tray.md#starting-at-sign-in)). Uninstalling,
 from Settings → Apps, removes the program and the sign-in entry and keeps the
 data folder. Neither is signed, so SmartScreen warns before either runs.
@@ -45,8 +45,8 @@ device verification and recovery are being tested.
 
 ## Rendering on Windows
 
-Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
-Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
+Yapfast renders with Skia Software unless "Enable Hardware Acceleration" in
+Settings → System is on. On Windows that setting asks Slint for Skia with Direct3D
 required, which draws through wgpu's Direct3D 12; Linux uses OpenGL. NVIDIA's
 OpenGL driver on Windows kept about one core busy while it waited for the
 screen, which is why Windows doesn't. If the GPU can't start, Yapfast restarts

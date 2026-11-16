@@ -61,6 +61,7 @@ const STREAM_WATCH: u64 = 20;
 const STREAM_SET_PAUSED: u64 = 22;
 const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
+const REQUEST_CHANNEL_INFO: u64 = 43;
 
 /// Discord closed the gateway, with its close code.
 #[derive(Debug)]
@@ -420,6 +421,27 @@ impl Gateway {
         .await
     }
 
+    /// Asks a server for the presences of these people, as Discord's client
+    /// subscribes to those it shows; the list replaces the last.
+    pub async fn subscribe_members(&mut self, guild_id: &str, members: &[String]) -> Result<()> {
+        self.send(
+            GUILD_SUBSCRIPTIONS_BULK,
+            json!({"subscriptions": {guild_id: {"members": members}}}),
+        )
+        .await
+    }
+
+    /// Asks when each of a server's voice channels' sessions began, which
+    /// Discord's client shows as a timer on the channel; CHANNEL_INFO answers,
+    /// and VOICE_CHANNEL_START_TIME_UPDATE follows as sessions start and end.
+    pub async fn request_channel_info(&mut self, guild_id: &str) -> Result<()> {
+        self.send(
+            REQUEST_CHANNEL_INFO,
+            json!({"guild_id": guild_id, "fields": ["voice_start_time"]}),
+        )
+        .await
+    }
+
     /// Starts sharing to the voice channel this account is in, or with no
     /// server, the DM call. Discord answers with STREAM_CREATE and then
     /// STREAM_SERVER_UPDATE.
@@ -478,7 +500,8 @@ impl Gateway {
         user_ids: &[String],
         nonce: Option<&str>,
     ) -> Result<()> {
-        if self.members_held(guild_id) {
+        let held = self.members_held(guild_id);
+        if held {
             return Ok(());
         }
         let mut request = json!({"guild_id": [guild_id], "user_ids": user_ids, "presences": false});

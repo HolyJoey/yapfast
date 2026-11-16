@@ -156,7 +156,13 @@ fn activity(activity: &Value) -> Option<Activity> {
             text("state")
         },
         party,
-        start: time(&timestamps["start"]),
+        // A game that gives no times counts from when its activity was
+        // made, as Discord's lists show it.
+        start: time(&timestamps["start"]).or_else(|| {
+            (kind == Kind::Playing && timestamps["end"].is_null())
+                .then(|| time(&activity["created_at"]))
+                .flatten()
+        }),
         end: time(&timestamps["end"]),
         // A game Discord detected has no pictures, but its icon.
         large_image: image("large_image").or_else(|| {

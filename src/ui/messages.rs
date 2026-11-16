@@ -10,6 +10,8 @@ use yapfast_core::blocks::{Block, Kind};
 pub(super) const AUTHOR_LINK: &str = "yapfast:author/";
 pub(super) const JUMP_LINK: &str = "yapfast:jump/";
 pub(super) const PINS_LINK: &str = "yapfast:pins";
+/// A call notice's "Join the call", while the call it tells of goes on.
+pub(super) const JOIN_CALL_LINK: &str = "yapfast:join-call";
 
 /// A message continues the previous one's group when the same person sent it
 /// within seven minutes, without replying to something else. A notice, such
@@ -342,6 +344,11 @@ pub(super) fn notice_text(
                 strong("pinned messages", theme::text_color(), Some(PINS_LINK)),
             )
         }
+        // A call without its length goes on: Discord offers to join it.
+        _ if notice.text == "started a call." && !message.own => format!(
+            " started a call. — {}",
+            strong("Join the call", theme::mention_color(), Some(JOIN_CALL_LINK))
+        ),
         // A possessive follows the name without a space.
         _ if notice.text.starts_with('\'') => escape_markdown(&notice.text),
         _ => format!(" {}", escape_markdown(&notice.text)),
@@ -468,11 +475,23 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     } else {
         None
     };
+    let inline_edit = message.edited
+        && !message.deleted
+        && message.formatted
+        && message.notice.is_none()
+        && !message.body.trim().is_empty()
+        && (blocks.is_none() || !ends_in_code(&message.body));
     let styled = if blocks.is_some() {
         slint::StyledText::default()
     } else if let Some(notice) = &message.notice {
         notice_text(message, notice, &message.time)
     } else if message.formatted {
+        // "(edited)" follows the text on its last line, as in Discord.
+        let linked = if inline_edit {
+            format!("{linked}{}", edited_mark())
+        } else {
+            linked
+        };
         if message.spoilers {
             styled(&spoiler::mark(&linked, &message.item, 0, |index| {
                 revealed.contains(&format!("{}/{index}", message.item))
@@ -537,9 +556,15 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .iter()
         .enumerate()
         .map(|(index, embed)| {
+            // Discord's card is 432px wide, which leaves its picture 400px.
             let (images, gallery_width, gallery_height) =
-                gallery(&previews(Placement::Embed(index)), &covered);
+                gallery_within(&previews(Placement::Embed(index)), &covered, 400);
             let thumbnail = previews(Placement::Thumbnail(index)).into_iter().next();
+            // Its mentions coloured and its custom emoji drawn, as a message's.
+            let described = custom_emoji::text(
+                &with_mentions(&embed.description, &embed.mentions),
+                &message.emoji,
+            );
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
                 color: role_color(embed.color),
@@ -554,7 +579,7 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
                 description: if description_blocks.row_count() > 0 {
                     slint::StyledText::default()
                 } else {
-                    markdown(&embed.description)
+                    styled_or(&described, &embed.description)
                 },
                 has_description: !embed.description.is_empty(),
                 description_blocks,
@@ -586,7 +611,7 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
                     && attachment.placement == placement
             })
             .map(|(index, attachment)| {
-                let size = attachment.size.map(file_size);
+                let size = attachment.size.map(yapfast_core::chat::card_size);
                 let detail = match (attachment.image, attachment.preview_failed, size) {
                     (true, true, Some(size)) => format!("{size} · Preview unavailable"),
                     (true, true, None) => "Preview unavailable".into(),
@@ -633,6 +658,7 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
     let looks = row_looks(message.tag.as_ref());
+    let (color_to, role_icon, role_emoji) = super::profile::role_look(message.role_look.as_deref());
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
@@ -644,11 +670,11 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .into(),
         color: role_color(message.color),
         has_color: message.color.is_some(),
+        color_to,
+        role_icon,
+        role_emoji,
         bot: message.bot,
         name_font: looks.font,
-        name_effect: looks.effect,
-        name_color_a: looks.color_a,
-        name_color_b: looks.color_b,
         decoration: looks.decoration,
         nameplate: looks.nameplate,
         tag: message
@@ -687,9 +713,23 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         notice: notice_icon(message.notice.as_ref()).into(),
         author_styled: bold(&message.author),
         time_styled: slint::StyledText::from_plain_text(&message.time),
-        edited: message.edited,
+        // Said in the text itself when it can be; on a line of its own otherwise.
+        edited: message.edited && !inline_edit,
         deleted: message.deleted,
         forwarded: message.forwarded,
+        forward_source: message
+            .forward_source
+            .as_ref()
+            .map_or_else(SharedString::default, |source| {
+                // The preferences' clock sets its time; see `Layout::restyle`.
+                format!("# {}", source.name).into()
+            }),
+        forward_room: message
+            .forward_source
+            .as_ref()
+            .map_or_else(SharedString::default, |source| source.room.as_str().into()),
+        reply_forwarded: message.reply.as_ref().is_some_and(|reply| reply.forwarded),
+        reply_files: message.reply.as_ref().is_some_and(|reply| reply.files),
         has_reply: message.reply.is_some(),
         reply_author: reply_author.into(),
         reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
@@ -730,6 +770,12 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .and_then(|reply| reply.item.clone())
             .unwrap_or_default()
             .into(),
+        reaction_digits: message
+            .reactions
+            .iter()
+            .map(|reaction| reaction.count.max(1).ilog10() as i32 + 1)
+            .max()
+            .unwrap_or(1),
         reactions: ModelRc::new(VecModel::from(
             message
                 .reactions
@@ -939,7 +985,7 @@ pub(super) fn text_blocks(text: &str) -> Vec<TextBlock> {
     if text.trim().is_empty() {
         return Vec::new();
     }
-    blocks_of(text, |_, text| links::escape_html(text).into_owned()).unwrap_or_else(|| {
+    blocks_of(text, "", |_, text| links::escape_html(text).into_owned()).unwrap_or_else(|| {
         vec![TextBlock {
             text: markdown(text.trim_matches('\n')),
             ..Default::default()
@@ -950,7 +996,7 @@ pub(super) fn text_blocks(text: &str) -> Vec<TextBlock> {
 /// Someone's Markdown in blocks, as [`markdown`] styles it, when it has
 /// headings, quotes or code; otherwise none, and [`markdown`] shows it.
 pub(super) fn markdown_blocks(markdown: &str) -> ModelRc<TextBlock> {
-    blocks_of(markdown, |_, text| links::escape_html(text).into_owned())
+    blocks_of(markdown, "", |_, text| links::escape_html(text).into_owned())
         .map_or_else(ModelRc::default, |blocks| {
             ModelRc::new(VecModel::from(blocks))
         })
@@ -965,7 +1011,13 @@ fn body_blocks(
     revealed: Option<&HashSet<String>>,
 ) -> Option<Vec<TextBlock>> {
     let mut spoilers = 0;
-    blocks_of(&message.body, |block, text| {
+    // "(edited)" follows the last block, as in Discord, unless that's code.
+    let edited = if message.edited && !message.deleted && !ends_in_code(&message.body) {
+        edited_mark()
+    } else {
+        String::new()
+    };
+    blocks_of(&message.body, &edited, |block, text| {
         let mentions: Vec<_> = message
             .mentions
             .iter()
@@ -1002,6 +1054,7 @@ fn body_blocks(
 /// it's text alone.
 fn blocks_of(
     markdown: &str,
+    suffix: &str,
     mut prepare: impl FnMut(&Block, &str) -> String,
 ) -> Option<Vec<TextBlock>> {
     let blocks = yapfast_core::blocks::split(markdown)?;
@@ -1027,10 +1080,12 @@ fn blocks_of(
     for (index, block) in blocks.iter().enumerate() {
         let before = index.checked_sub(1).map(|index| &blocks[index]);
         let typed = block.text(markdown);
+        // What follows the last block's text, such as "(edited)".
+        let suffix = if index + 1 == blocks.len() { suffix } else { "" };
         let text = match block.kind {
             Kind::Code => slint::StyledText::from_plain_text(&typed),
-            Kind::Heading(_) => styled_or(&format!("**{}**", prepare(block, &typed)), &typed),
-            Kind::Subtext => styled_or(&prepare(block, &typed), &typed),
+            Kind::Heading(_) => styled_or(&format!("**{}**{suffix}", prepare(block, &typed)), &typed),
+            Kind::Subtext => styled_or(&format!("{}{suffix}", prepare(block, &typed)), &typed),
             // Discord's client shows every line, blank or not.
             Kind::Text => {
                 let prepared = prepare(block, &typed);
@@ -1044,7 +1099,7 @@ fn blocks_of(
                         }
                     })
                     .collect();
-                styled_or(&lines.join("\n"), &typed)
+                styled_or(&format!("{}{suffix}", lines.join("\n")), &typed)
             }
         };
         let starts_quote = block.quoted && !before.is_some_and(|before| before.quoted);
@@ -1073,6 +1128,23 @@ fn blocks_of(
         });
     }
     Some(shown)
+}
+
+/// "(edited)" as it follows a message's text, small and muted, as
+/// Discord's client marks an edit.
+fn edited_mark() -> String {
+    format!(
+        " <font color=\"#{:06x}\">(edited)</font>",
+        theme::muted_color() & 0xff_ffff
+    )
+}
+
+/// Whether a message's last block is code, after which "(edited)" goes on
+/// a line of its own.
+fn ends_in_code(body: &str) -> bool {
+    yapfast_core::blocks::split(body)
+        .and_then(|blocks| blocks.last().map(|block| block.kind == Kind::Code))
+        .unwrap_or(false)
 }
 
 /// What a thread's link says after its name: how many messages it has,

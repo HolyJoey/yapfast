@@ -1,6 +1,6 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
+import { Theme, Tip, Middle, Label, ActivityClock } from "theme.slint";
+import { Avatar, PictureStore, StatusText, VoiceSpot, ServerTag, StyledName, IconButton } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -25,6 +25,14 @@ export struct ServerRow {
     tint: color,
     /// A closed folder's first four servers.
     preview: [FolderServer],
+    /// Someone is in one of its voice channels, and someone there shares
+    /// their screen: marked at its icon's top right, as in Discord.
+    voice: bool, live: bool,
+    /// The button after the last server that adds one, as in Discord.
+    add: bool,
+    /// An unread group DM without an icon: two of its people's avatars, one
+    /// over the other, as in Discord's rail and DM list.
+    face-a: string, face-b: string,
     /// An unread DM above the servers, as in Discord: `id` is its room's,
     /// `picture-url` its avatar or group icon, and `badge` its unread messages.
     dm: bool,
@@ -57,6 +65,15 @@ export struct RoomRow {
     /// the status's custom emoji.
     presence: string,
     detail: string, detail-emoji: string,
+    /// The line is a game they play, after Discord's green controller.
+    playing: bool,
+    /// A channel @everyone can't see, locked in Discord's list.
+    private: bool,
+    /// They're in a DM's call: the line says so after a green phone.
+    calling: bool,
+    /// That person's Discord server tag and its badge, and their display
+    /// name style's font id, 0 for none.
+    tag: string, tag-badge: string, name-font: int,
     /// The server voice channel a one-to-one Discord DM's other person is
     /// in, by room id, with its name and its server's; the room is empty
     /// when they're in none.
@@ -77,10 +94,17 @@ export struct RoomRow {
     /// that channel's threads follows it.
     thread: bool,
     thread-continues: bool,
+    /// A voice channel's user limit, 0 for none, and when its session
+    /// began, on ActivityClock, 0 when unknown.
+    limit: int, since: int,
     /// Where its channel, and its heading's category, come among the rows
     /// a Discord channel list drags and drops, counting from 1; 0 for
     /// neither, such as a thread or a pinned channel.
     place: int, heading-place: int,
+    /// Its heading shows a "+" that makes a channel in its category.
+    heading-creates: bool,
+    /// Its settings open for this account, from a gear on its row.
+    editable: bool,
 }
 
 // A call going on in a server: a white speaker on green, on a thin ring of
@@ -102,7 +126,21 @@ component CallBubble inherits Rectangle {
     }
 }
 
-// A server or the DM home: a circle that becomes a squircle, with a pill at the rail edge.
+// People in a server's voice channels: a white speaker, or a screen while
+// one of them shares theirs, on a disc of the rail's colour at the top right
+// of its icon, as Discord marks it.
+component VoiceBubble inherits Rectangle {
+    in property <bool> live;
+    width: 20px; height: 20px; border-radius: self.width / 2;
+    background: Theme.rail;
+    Image {
+        // Discord's filled screen for someone streaming.
+        source: root.live ? @image-url("icons/screen-live.svg") : @image-url("icons/volume-2-bold.svg");
+        width: 12px; height: 12px; colorize: Theme.text;
+    }
+}
+
+// A server or the DM home: a rounded square, as in Discord, with a pill at the rail edge.
 export component RailItem inherits Rectangle {
     in property <string> label;
     /// The tooltip; the accessible label may add state such as "unread".
@@ -132,11 +170,17 @@ export component RailItem inherits Rectangle {
     in property <bool> call;
     /// Marks a Discord server.
     in property <bool> discord;
+    /// People are in its voice channels, and one shares their screen.
+    in property <bool> voice;
+    in property <bool> live;
+    /// A group DM without an icon: two of its people, one over the other.
+    in property <string> face-a;
+    in property <string> face-b;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    width: 72px; height: 40px;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -149,27 +193,36 @@ export component RailItem inherits Rectangle {
         background: Theme.text;
         animate height { duration: 160ms; easing: ease-out; }
     }
-    // A picture only changes shape when lit, as in Discord.
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px;
-        border-radius: root.lit ? 16px : 24px;
-        background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
-        animate border-radius, background { duration: 160ms; easing: ease-out; }
+        x: 16px; width: 40px; height: 40px;
+        border-radius: 12px;
+        background: root.face-a != "" && root.shown-picture.width == 0 ? transparent
+            : root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
+        animate background { duration: 160ms; easing: ease-out; }
         clip: true;
         if root.shown-picture.width > 0: Image {
-            source: root.shown-picture; width: 48px; height: 48px; image-fit: cover;
+            source: root.shown-picture; width: 40px; height: 40px; image-fit: cover;
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
             colorize: root.lit ? Theme.on-accent : root.icon-color;
         }
-        if root.icon.width == 0 && root.shown-picture.width == 0: Text {
+        if root.face-a != "" && root.shown-picture.width == 0: Rectangle {
+            width: 40px; height: 40px;
+            Avatar { x: 0px; y: 0px; size: 27px; initial: root.initial; tint: Theme.raised; picture-url: root.face-a; }
+            Rectangle {
+                x: 12px; y: 12px; width: 28px; height: 28px; border-radius: 14px;
+                background: Theme.rail;
+                Avatar { size: 23px; initial: root.initial; tint: Theme.raised; picture-url: root.face-b != "" ? root.face-b : root.face-a; }
+            }
+        }
+        if root.icon.width == 0 && root.shown-picture.width == 0 && root.face-a == "": Text {
             text: root.initial; font-size: 17px; font-weight: 700;
             color: root.lit ? Theme.on-accent : Theme.text;
         }
         // The focus ring, drawn over the picture.
         Rectangle {
-            width: 48px; height: 48px; border-radius: tile.border-radius;
+            width: 40px; height: 40px; border-radius: tile.border-radius;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
@@ -177,13 +230,14 @@ export component RailItem inherits Rectangle {
     // Discord's logo on its blurple, at the top left on a ring of the rail's
     // colour so it reads as a tag.
     if root.discord: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: 16px - 2px; y: (parent.height - 40px) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call: CallBubble { x: 16px + 40px + 3px - self.width; y: (parent.height - 40px) / 2 - 3px; }
+    if root.voice && !root.call: VoiceBubble { x: 16px + 40px + 5px - self.width; y: (parent.height - 40px) / 2 - 5px; live: root.live; }
     // The mention count, on a ring of the rail's colour.
     if root.badge != "": Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: 16px + 40px + 4px - self.width; y: (parent.height + 40px) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -244,7 +298,7 @@ component FolderItem inherits Rectangle {
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    width: 72px; height: 40px;
     accessible-role: button;
     accessible-label: root.label;
     accessible-expandable: true;
@@ -260,7 +314,7 @@ component FolderItem inherits Rectangle {
         animate height { duration: 160ms; easing: ease-out; }
     }
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px; border-radius: 16px;
+        x: 16px; width: 40px; height: 40px; border-radius: 12px;
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
         animate background { duration: 160ms; easing: ease-out; }
         if root.open: Image {
@@ -268,24 +322,24 @@ component FolderItem inherits Rectangle {
         }
         if !root.open: Rectangle {
             for server[index] in root.servers: Avatar {
-                x: 6px + Math.mod(index, 2) * 20px; y: 6px + floor(index / 2) * 20px;
-                size: 16px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
+                x: 5px + Math.mod(index, 2) * 16px; y: 5px + floor(index / 2) * 16px;
+                size: 14px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
             }
         }
         Rectangle {
-            width: 48px; height: 48px; border-radius: 16px;
+            width: 40px; height: 40px; border-radius: 12px;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
     }
     // Its servers are Discord's, so it carries Discord's mark as they do.
     if !root.open: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: 16px - 2px; y: (parent.height - 40px) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call && !root.open: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call && !root.open: CallBubble { x: 16px + 40px + 3px - self.width; y: (parent.height - 40px) / 2 - 3px; }
     if root.badge != "" && !root.open: Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: 16px + 40px + 4px - self.width; y: (parent.height + 40px) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -388,6 +442,16 @@ export component ChannelRow inherits Rectangle {
     in property <bool> locked;
     /// A DM with a call going on.
     in property <bool> call;
+    /// They're in a DM's call, said under their name after a green phone.
+    in property <bool> calling;
+    /// How long this account's call in this DM has lasted, in green where
+    /// Discord shows it; empty when it isn't in one here.
+    in property <string> call-time;
+    /// A channel @everyone can't see: a lock on its icon, as in Discord.
+    in property <bool> private;
+    /// A DM that can be closed from its row, with the × Discord shows.
+    in property <bool> closable;
+    callback close;
     /// A DM pinned to the top of the list.
     in property <bool> pinned;
     /// A DM or channel whose notifications are muted: drawn faint until it's selected or pointed at.
@@ -396,6 +460,16 @@ export component ChannelRow inherits Rectangle {
     in property <string> presence;
     in property <string> detail;
     in property <string> detail-emoji;
+    in property <bool> playing;
+    /// A voice channel: how many are in it, its user limit, 0 for none, and
+    /// when its session began, on ActivityClock, 0 when unknown.
+    in property <int> count;
+    in property <int> limit;
+    in property <int> since;
+    /// A DM person's server tag and name font, as RoomRow has them.
+    in property <string> tag;
+    in property <string> tag-badge;
+    in property <int> name-font;
     /// The server voice channel their person is in, as RoomRow has it.
     in property <string> voice-channel;
     in property <string> voice-server;
@@ -406,6 +480,9 @@ export component ChannelRow inherits Rectangle {
     /// button shows on it while pointed at or open.
     in property <bool> can-invite;
     callback invite;
+    /// Its settings open for this account: Discord's gear beside invite.
+    in property <bool> editable;
+    callback edit;
     in property <bool> chat;
     /// It may be dragged: once the pointer has moved a few pixels with the
     /// button down, `start-drag` asks whether it may, given how far down
@@ -432,7 +509,7 @@ export component ChannelRow inherits Rectangle {
     callback context-menu(length, length);
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
-    height: root.person ? 42px : 34px;
+    height: root.person ? 42px : 32px;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
@@ -519,12 +596,30 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                // A voice channel with people in it has a green speaker, as in Discord.
+                if !root.person && !root.thread: Rectangle {
+                    width: 20px;
+                    Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.count > 0 ? Theme.live : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                    // Discord's small lock at the icon's top right on a private channel.
+                    if root.private: Rectangle {
+                        x: 11px; y: (parent.height - 20px) / 2 - 2px; width: 11px; height: 11px; border-radius: 3px;
+                        background: root.selected ? Theme.active : Theme.sidebar;
+                        Image { source: @image-url("icons/lock.svg"); width: 9px; height: 9px; colorize: root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                    }
+                }
                 VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
-                    Text {
-                        text: root.text; color: root.ink; font-size: 16px; font-weight: root.unread || root.selected ? 700 : 500;
-                        vertical-alignment: center; overflow: elide;
+                    // Unread, a name turns white and keeps its weight, as in Discord.
+                    HorizontalLayout {
+                        spacing: 6px;
+                        StyledName {
+                            text: root.text; plain: root.ink; font-size: 16px; font-weight: 500;
+                            font-id: root.name-font;
+                            vertical-alignment: center; overflow: elide;
+                            horizontal-stretch: 0; min-width: 0px;
+                        }
+                        if root.tag != "": Middle { ServerTag { text: root.tag; badge-url: root.tag-badge; font-size: 11px; } }
+                        Rectangle { horizontal-stretch: 1; }
                     }
                     // Their voice channel in full when nothing else is said here,
                     // else a speaker before what is, as the friends list has it.
@@ -541,17 +636,59 @@ export component ChannelRow inherits Rectangle {
                             channel: root.voice-channel; server: root.voice-server; font-size: 12px; compact: true;
                             clicked => { root.open-voice(); }
                         }
+                        if root.playing: VerticalLayout {
+                            alignment: center;
+                            Image { source: @image-url("icons/gamepad-filled.svg"); width: 12px; height: 12px; colorize: Theme.live; }
+                        }
+                        if root.calling: VerticalLayout {
+                            alignment: center;
+                            Image { source: @image-url("icons/phone.svg"); width: 12px; height: 12px; colorize: Theme.live; }
+                        }
                         StatusText { text: root.detail; emoji-url: root.detail-emoji; font-size: 12px; }
                     }
                 }
-                if root.call: Image {
-                    source: @image-url("icons/phone.svg"); width: 16px; image-fit: contain; colorize: Theme.live;
-                    accessible-role: image; accessible-label: "In a call";
+                if root.call-time != "": Text {
+                    text: root.call-time; color: Theme.live; font-size: 12px; font-family: "monospace";
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text; accessible-label: "In this call for " + self.text;
+                }
+                // A voice channel with people in it: how many of how many it
+                // holds, or with no limit, how long it has been going.
+                if root.limit > 0: Middle {
+                    Rectangle {
+                        width: 48px; height: 18px; border-radius: 9px; clip: true;
+                        background: Theme.active; border-width: 1px; border-color: Theme.active;
+                        accessible-role: AccessibleRole.text; accessible-label: root.count + " of " + root.limit;
+                        Rectangle {
+                            x: 1px; y: 1px; width: 24px; height: 16px; background: Theme.sunken;
+                            border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+                            Text { text: (root.count < 10 ? "0" : "") + root.count; color: Theme.secondary; font-size: 12px; font-weight: 600; }
+                        }
+                        Text {
+                            x: 25px; width: 22px; horizontal-alignment: center;
+                            text: (root.limit < 10 ? "0" : "") + root.limit; color: Theme.secondary; font-size: 12px; font-weight: 600;
+                        }
+                    }
+                }
+                if root.count > 0 && root.limit == 0 && root.since > 0: Text {
+                    text: ActivityClock.elapsed(root.since); color: Theme.live; font-size: 12px; font-family: "monospace";
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text; accessible-label: "Going for " + self.text;
                 }
                 if root.pinned: Image {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
                 }
-                if root.badge != "": Middle {
+                // Discord's × on a DM row the pointer is on, or the open one,
+                // which closes the DM.
+                if root.closable && root.call-time == "" && (pointer.has-hover || root.selected): Middle {
+                    IconButton {
+                        size: 20px; glyph: 14px; height: 20px; icon: @image-url("icons/x.svg"); label: "Close DM";
+                        clicked => { root.close(); }
+                    }
+                }
+                // Discord counts a DM's mentions on its picture in the
+                // server list, not on its row here.
+                if root.badge != "" && !root.person: Middle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
                         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
@@ -579,6 +716,34 @@ export component ChannelRow inherits Rectangle {
                                     Tip.x = invite-icon.absolute-position.x + invite-icon.width / 2;
                                     Tip.y = invite-icon.absolute-position.y;
                                 } else if Tip.text == "Create Invite" {
+                                    Tip.text = "";
+                                }
+                            }
+                        }
+                    }
+                }
+                // Discord's "Edit Channel" gear, after invite.
+                if root.editable && (pointer.has-hover || root.selected): Middle {
+                    Rectangle {
+                        width: 24px; height: 24px; border-radius: 6px;
+                        background: edit-pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
+                        accessible-role: button;
+                        accessible-label: "Edit Channel";
+                        accessible-action-default => { root.edit(); }
+                        edit-icon := Image {
+                            source: @image-url("icons/settings.svg"); width: 16px; height: 16px;
+                            colorize: edit-pointer.has-hover ? Theme.text : Theme.secondary;
+                        }
+                        edit-pointer := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { Tip.text = ""; root.edit(); }
+                            changed has-hover => {
+                                if self.has-hover {
+                                    Tip.text = "Edit Channel";
+                                    Tip.side = 0;
+                                    Tip.x = edit-icon.absolute-position.x + edit-icon.width / 2;
+                                    Tip.y = edit-icon.absolute-position.y;
+                                } else if Tip.text == "Edit Channel" {
                                     Tip.text = "";
                                 }
                             }
@@ -643,6 +808,9 @@ component CategoryHeading inherits Rectangle {
     property <bool> refused;
     callback toggled;
     callback context-menu(length, length);
+    /// It shows Discord's "+", which makes a channel in the category.
+    in property <bool> creates;
+    callback create;
     height: 36px;
     accessible-role: button;
     accessible-label: root.text + (root.collapsed ? ", collapsed" : ", expanded");
@@ -706,6 +874,21 @@ component CategoryHeading inherits Rectangle {
             }
         }
     }
+    // Discord's "+", for who may make channels there.
+    if root.creates: Image {
+        x: root.width - 28px; y: (root.height - 16px) / 2;
+        width: 16px; height: 16px; image-fit: contain;
+        source: @image-url("icons/plus.svg");
+        colorize: plus.has-hover ? Theme.text : Theme.muted;
+        accessible-role: button; accessible-label: "Create Channel";
+        accessible-action-default => { root.create(); }
+    }
+    plus := TouchArea {
+        x: root.width - 32px; width: 24px; height: root.height;
+        enabled: root.creates;
+        mouse-cursor: pointer;
+        clicked => { root.create(); }
+    }
     Rectangle {
         border-radius: 4px; border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     }
@@ -716,9 +899,15 @@ component CategoryHeading inherits Rectangle {
 // open. The Menu key or Shift+F10 opens it too.
 export component ServerHeader inherits Rectangle {
     in property <string> name;
-    /// The server's icon's address, shown before its name as in Discord.
+    /// The server's icon's address and initial, which its menu's header
+    /// once showed; Discord shows the boost badge there instead.
     in property <string> icon-url;
     in property <string> initial;
+    /// Its boost level, 0 to 3: a pink badge before the name from 1.
+    in property <int> boost-tier;
+    /// Discord's badge in the boost badge's place: 1 verified, 2 partnered,
+    /// 3 discoverable, 0 none.
+    in property <int> badge;
     in property <bool> open;
     callback clicked;
     border-radius: 6px;
@@ -737,11 +926,19 @@ export component ServerHeader inherits Rectangle {
     }
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
-        if root.icon-url != "" || root.initial != "": VerticalLayout {
+        if root.badge > 0: VerticalLayout {
             alignment: center;
-            Rectangle {
-                width: 20px; height: 20px; border-radius: 6px; clip: true;
-                Avatar { size: 20px; initial: root.initial; picture-url: root.icon-url; }
+            Image {
+                source: root.badge == 1 ? @image-url("icons/server-verified.svg") : root.badge == 2 ? @image-url("icons/server-partnered.svg") : @image-url("icons/server-discoverable.svg");
+                width: 18px; height: 18px;
+                accessible-role: image; accessible-label: root.badge == 1 ? "Verified" : root.badge == 2 ? "Partnered" : "Discoverable";
+            }
+        }
+        if root.badge == 0 && root.boost-tier > 0: VerticalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("icons/boost-gem.svg"); width: 16px; height: 16px; colorize: #ff73fa;
+                accessible-role: image; accessible-label: "Boost level " + root.boost-tier;
             }
         }
         Text {
@@ -782,13 +979,16 @@ export component ServerRail inherits Rectangle {
     callback open-server-menu(string, length, length);
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
+    /// The bottom edge of the lowest unread server in the list, in pixels
+    /// from its top; 0 for none. Below sight, a "NEW" pill points at it.
+    in property <int> unread-bottom;
     callback join-server;
     width: 72px; background: Theme.rail;
     VerticalLayout {
-        padding-top: 12px; padding-bottom: 12px; spacing: 8px;
+        padding-top: 2px; padding-bottom: 12px; spacing: 8px;
         RailItem {
-            // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: 32px;
+            // Discord's logo, as its own client puts here.
+            icon: @image-url("icons/discord.svg"); icon-color: Theme.secondary; icon-size: 24px;
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
@@ -796,20 +996,20 @@ export component ServerRail inherits Rectangle {
         }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.
-        ListView {
+        rail-list := ListView {
             vertical-stretch: 1;
             for server in root.servers: Rectangle {
-                height: server.divider ? 2px + 8px : 48px + 8px;
+                height: server.divider ? 1px + 8px : server.add && !root.can-join ? 0px : 40px + 8px;
                 if server.divider: Rectangle {
-                    x: (72px - self.width) / 2; y: 0px; width: 32px; height: 2px; border-radius: 1px; background: Theme.line;
+                    x: (72px - self.width) / 2; y: 0px; width: 32px; height: 1px; background: Theme.line;
                 }
                 // An open folder's servers sit on a strip of its colour,
                 // from its folder down to its last server.
                 if server.open || server.nested: Rectangle {
-                    x: 12px; y: 0px; width: 48px; height: server.last ? 48px : parent.height;
-                    border-top-left-radius: server.open ? 16px : 0px;
+                    x: 16px; y: 0px; width: 40px; height: server.last ? 40px : parent.height;
+                    border-top-left-radius: server.open ? 12px : 0px;
                     border-top-right-radius: self.border-top-left-radius;
-                    border-bottom-left-radius: server.last ? 16px : 0px;
+                    border-bottom-left-radius: server.last ? 12px : 0px;
                     border-bottom-right-radius: self.border-bottom-left-radius;
                     background: server.tint.with-alpha(0.16);
                 }
@@ -830,10 +1030,17 @@ export component ServerRail inherits Rectangle {
                         + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
                     tip: server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
                     unread: true; badge: server.badge; discord: server.discord;
+                    face-a: server.face-a; face-b: server.face-b;
                     clicked => { root.open-dm(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
-                if !server.folder && !server.dm && !server.divider: RailItem {
+                if server.add && root.can-join: RailItem {
+                    y: 0px;
+                    icon: @image-url("icons/plus.svg"); icon-color: Theme.text; icon-size: 20px;
+                    label: "Add a Server"; tip: "Add a Server";
+                    clicked => { root.join-server(); }
+                }
+                if !server.folder && !server.dm && !server.divider && !server.add: RailItem {
                     y: 0px;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
@@ -841,17 +1048,29 @@ export component ServerRail inherits Rectangle {
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
-                    call: server.call;
+                    call: server.call; voice: server.voice; live: server.live;
                     opacity: server.unavailable ? 0.5 : 1;
                     clicked => { root.navigate-server(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
             }
         }
-        if root.can-join: RailItem {
-            icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
-            label: "Join a server"; tip: "Join a server";
-            clicked => { root.join-server(); }
+    }
+    // As Discord's: a pill at the foot while an unread server is out of
+    // sight below; it scrolls a page down.
+    if root.unread-bottom > 0 && root.unread-bottom * 1px > -rail-list.content-y + rail-list.visible-height + 4px: Rectangle {
+        x: (root.width - self.width) / 2;
+        y: rail-list.y + rail-list.visible-height - self.height - 8px;
+        width: new-text.preferred-width + 16px; height: 24px; border-radius: 12px;
+        background: Theme.danger;
+        accessible-role: button; accessible-label: "Unread servers below";
+        accessible-action-default => { new-touch.clicked(); }
+        new-text := Text { text: "NEW"; color: Theme.on-danger; font-size: 12px; font-weight: 700; }
+        new-touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                rail-list.content-y = max(rail-list.visible-height - rail-list.content-height, rail-list.content-y - rail-list.visible-height * 0.8);
+            }
         }
     }
 }
@@ -870,7 +1089,7 @@ component DmScreenLinks inherits VerticalLayout {
     callback new-dm;
     padding-top: 8px; spacing: 2px;
     ChannelRow {
-        text: "Friends";
+        text: "Friends"; height: 40px;
         label: "Friends" + (root.requests-badge != "" ? ", " + root.requests-badge + " requests waiting" : "");
         icon: @image-url("icons/users.svg");
         selected: root.friends-open || root.requests-current; badge: root.requests-badge;
@@ -897,15 +1116,42 @@ component DmScreenLinks inherits VerticalLayout {
 
 // Browse Channels, at the top of a Community server's channel list, as in
 // Discord's client.
+// The top of a Discord server's channel list, as Discord's: its boost
+// goal's bar when it shows one, then Channels & Roles when it has
+// onboarding, each ruled off.
 component BrowseLink inherits VerticalLayout {
     in property <bool> browsing;
+    /// It offers Channels & Roles.
+    in property <bool> offered;
+    /// Its boosts, for the boost goal's bar; -1 for none.
+    in property <int> boosts: -1;
     callback open-browse;
-    padding-top: 6px; padding-bottom: 6px;
-    ChannelRow {
-        text: "Browse channels";
-        icon: @image-url("icons/hash.svg");
+    padding-top: root.boosts >= 0 ? 16px : 6px;
+    if root.boosts >= 0: Rectangle {
+        height: 22px; border-radius: 11px;
+        background: @linear-gradient(90deg, #1b0715 0%, #3b1131 55%, #6e1f5a 100%);
+        accessible-role: text; accessible-label: "Boost Goal, " + root.boosts + " Boosts";
+        HorizontalLayout {
+            padding-left: 10px; padding-right: 8px; spacing: 4px;
+            Text { text: "Boost Goal 🎉"; color: #ffffff; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: root.boosts + " Boosts"; color: #a793a4; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+            Middle { Image { source: @image-url("icons/chevron-right.svg"); width: 12px; height: 12px; colorize: #a793a4; } }
+        }
+    }
+    if root.boosts >= 0: Rectangle {
+        height: 21px;
+        Rectangle { x: -8px; width: parent.width + 16px; height: 1px; background: Theme.line; }
+    }
+    if root.offered: ChannelRow {
+        text: "Channels & Roles";
+        icon: @image-url("icons/channels-roles.svg");
         selected: root.browsing;
         clicked => { root.open-browse(); }
+    }
+    Rectangle {
+        height: 13px;
+        Rectangle { height: 1px; background: Theme.line; }
     }
 }
 
@@ -920,6 +1166,8 @@ export component RoomList inherits Rectangle {
     /// Requests waiting for an answer, as a badge.
     in property <string> requests-badge;
     /// The voice channel this account is connected to, whose participants are listed under it.
+    /// How long this account's call has lasted, for its DM's row.
+    in property <string> voice-time;
     in property <string> voice-channel;
     in property <[PersonRow]> participants;
     /// Said under the rooms, such as when none match the filter.
@@ -938,10 +1186,18 @@ export component RoomList inherits Rectangle {
     /// A Community server's list opens Browse Channels, which is on screen
     /// while `browsing`.
     in property <bool> browse-offered;
+    /// The server's boosts, for Discord's boost goal bar; -1 for none.
+    in property <int> boost-goal: -1;
+    property <bool> server-top: root.browse-offered || root.boost-goal >= 0;
     in property <bool> browsing;
     callback open-browse;
     /// A conversation's menu was asked for: its id, and where in the window.
     callback open-room-menu(string, length, length);
+    /// A DM row's × was clicked: its room id.
+    callback close-room(string);
+    /// The pointer came onto someone streaming, or left them: the room,
+    /// their id, whether it's on them, and where beside them to show it.
+    callback peek-stream(string, string, bool, length, length);
     /// A right click on someone in a voice channel: the channel's id,
     /// theirs, and where it was in the window.
     callback open-voice-menu(string, PersonRow, length, length);
@@ -956,6 +1212,10 @@ export component RoomList inherits Rectangle {
     callback toggle-category(string);
     /// A category's menu was asked for, by its first channel's id.
     callback open-category-menu(string, length, length);
+    /// A channel row's gear was clicked, by its room id.
+    callback edit-channel(string);
+    /// A category heading's "+" was clicked, by its category's room id.
+    callback create-in-category(string);
     /// Dragging a Discord server's channels and categories, by their rows'
     /// places: `start-arranging` asks whether one may be dragged, and
     /// `arranging` is the one being dragged, 0 for none, with the places it
@@ -1021,7 +1281,7 @@ export component RoomList inherits Rectangle {
     property <bool> screens: root.dms-selected && root.discord-linked && !root.preview;
     VerticalLayout {
         // With no rooms the list is empty; what it would start with shows above it.
-        if root.rooms.length == 0 && (root.screens || root.browse-offered || root.sidebar-empty != ""): VerticalLayout {
+        if root.rooms.length == 0 && (root.screens || root.server-top || root.sidebar-empty != ""): VerticalLayout {
             padding-left: 8px; padding-right: 8px; spacing: 2px;
             if root.screens: DmScreenLinks {
                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
@@ -1029,8 +1289,8 @@ export component RoomList inherits Rectangle {
                 open-requests => { root.open-requests(); }
                 new-dm => { root.new-dm(); }
             }
-            if root.browse-offered: BrowseLink {
-                browsing: root.browsing;
+            if root.server-top: BrowseLink {
+                browsing: root.browsing; offered: root.browse-offered; boosts: root.boost-goal;
                 open-browse => { root.open-browse(); }
             }
             if root.sidebar-empty != "": HorizontalLayout { padding: 8px; Label { text: root.sidebar-empty; } }
@@ -1047,9 +1307,9 @@ export component RoomList inherits Rectangle {
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
                     new-dm => { root.new-dm(); }
-                }
-                if index == 0 && root.browse-offered: BrowseLink {
-                    browsing: root.browsing;
+                    }
+                if index == 0 && root.server-top: BrowseLink {
+                    browsing: root.browsing; offered: root.browse-offered; boosts: root.boost-goal;
                     open-browse => { root.open-browse(); }
                 }
                 // A server's pinned channels end with a line, as in Discord.
@@ -1069,6 +1329,8 @@ export component RoomList inherits Rectangle {
                     text: room.heading; collapsed: room.collapsed;
                     toggled => { root.toggle-category(room.category); }
                     context-menu(x, y) => { root.open-category-menu(room.id, x, y); }
+                    creates: room.heading-creates;
+                    create => { root.create-in-category(room.category); }
                     draggable: room.heading-place > 0; tracking: root.arranging > 0;
                     start-drag(y) => { return root.begin(room.heading-place, room, true, y); }
                     dragged(y) => { root.drag-y = y; }
@@ -1126,10 +1388,18 @@ export component RoomList inherits Rectangle {
                     open-chat => { root.open-chat(room.id); }
                     can-invite: root.can-invite && !room.direct && !room.locked;
                     invite => { root.invite(room.id); }
+                    editable: room.editable;
+                    edit => { root.edit-channel(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
                     face-a: room.face-a; face-b: room.face-b;
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;
-                    call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;
+                    calling: room.calling; private: room.private;
+                    closable: room.direct && root.dms-selected && !root.preview;
+                    close => { root.close-room(room.id); } call: room.call; call-time: room.direct && room.id == root.voice-channel ? root.voice-time : "";
+                    presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji; playing: room.playing;
+                    tag: room.tag; tag-badge: room.tag-badge; name-font: room.name-font;
+                    count: !room.voice ? 0 : room.id == root.voice-channel ? root.participants.length : room.people.length;
+                    limit: room.limit; since: room.since;
                     voice-channel: room.voice-channel; voice-server: room.voice-server;
                     // Discord doesn't dim a muted voice channel, only a text one.
                     pinned: room.pinned && room.direct; muted: room.muted && !room.voice;
@@ -1143,8 +1413,8 @@ export component RoomList inherits Rectangle {
                     dropped => { root.finish(); }
                     // Who is in a voice channel lists under it, as part of it.
                     property <length> people: !room.voice ? 0px
-                        : room.id == root.voice-channel ? root.participants.length * 30px + 4px
-                        : room.people.length > 0 ? room.people.length * 30px + 4px : 0px;
+                        : room.id == root.voice-channel ? root.participants.length * 32px + 4px
+                        : room.people.length > 0 ? room.people.length * 32px + 4px : 0px;
                     property <bool> over: root.arranging > 0 && room.place > 0 && root.scrolled >= 0
                         && root.drag-y >= self.absolute-position.y - 2px && root.drag-y < self.absolute-position.y + self.height + self.people;
                     changed over => {
@@ -1166,7 +1436,7 @@ export component RoomList inherits Rectangle {
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
-                        height: 30px; border-radius: 4px;
+                        height: 32px; border-radius: 4px;
                         background: person-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         opacity: person.elsewhere && !person-touch.has-hover ? 0.5 : 1;
@@ -1193,15 +1463,24 @@ export component RoomList inherits Rectangle {
                                 } else if parent.tip != "" && Tip.text == parent.tip {
                                     Tip.text = "";
                                 }
+                                // Someone streaming shows their stream's preview beside
+                                // them, as Discord's list does.
+                                if person.live && !person.local && !person.elsewhere {
+                                    root.peek-stream(room.id, person.id, self.has-hover,
+                                        parent.absolute-position.x + parent.width + 16px, parent.absolute-position.y);
+                                }
                             }
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
-                            Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; } }
-                            Text {
-                                text: person.name; font-size: 15px; font-weight: 500; color: Theme.secondary;
-                                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                            Middle { Avatar { size: 24px; initial: person.initial; tint: person.tint; picture: person.picture; } }
+                            StyledName {
+                                text: person.name; font-id: person.name-font; font-size: 14px; font-weight: 500;
+                                plain: person-touch.has-hover ? Theme.text : Theme.muted;
+                                vertical-alignment: center; overflow: elide; horizontal-stretch: 0; min-width: 0px;
                             }
+                            if person.tag != "": Middle { ServerTag { text: person.tag; badge-url: person.tag-badge; font-size: 11px; } }
+                            Rectangle { horizontal-stretch: 1; }
                             if person.video && !person.elsewhere: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
                                 colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
@@ -1230,7 +1509,7 @@ export component RoomList inherits Rectangle {
                     for person in root.participants: Rectangle {
                         // A click opens their profile and a right click their
                         // menu, as above.
-                        height: 30px; border-radius: 4px;
+                        height: 32px; border-radius: 4px;
                         background: participant-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         accessible-role: button; accessible-label: person.name;
@@ -1251,12 +1530,14 @@ export component RoomList inherits Rectangle {
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
-                            Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
-                            Text {
-                                text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
-                                color: person.speaking ? Theme.text : person.connected ? Theme.secondary : Theme.muted;
-                                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                            Middle { Avatar { size: 24px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
+                            StyledName {
+                                text: person.name; font-id: person.name-font; font-size: 14px; font-weight: 500;
+                                plain: person.speaking || participant-touch.has-hover ? Theme.text : person.connected ? Theme.muted : Theme.faint;
+                                vertical-alignment: center; overflow: elide; horizontal-stretch: 0; min-width: 0px;
                             }
+                            if person.tag != "": Middle { ServerTag { text: person.tag; badge-url: person.tag-badge; font-size: 11px; } }
+                            Rectangle { horizontal-stretch: 1; }
                             if person.video: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
                                 colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";

@@ -110,6 +110,7 @@ impl MemberLists {
                 channel = Some(list.channel().to_owned());
             }
             gateway.subscribe(guild, channel.as_deref()).await?;
+            gateway.request_channel_info(guild).await?;
         }
         self.stale.as_mut().reset(Instant::now() + LIST_FRESH);
         Ok(())
@@ -164,6 +165,10 @@ impl MemberLists {
         }
         self.group = None;
         let new = self.viewing.insert(guild.clone());
+        // A server newly on screen says when its voice channels' sessions began.
+        if new {
+            gateway.request_channel_info(&guild).await?;
+        }
         let Some(channel) = channel else {
             if new {
                 gateway.subscribe(&guild, None).await?;

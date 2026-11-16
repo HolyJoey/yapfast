@@ -81,6 +81,9 @@ fn fingerprint(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
+/// The source of a presence from the friends' list, not a server.
+const FRIENDS: &str = "";
+
 /// What Discord says of a friend or a DM's person.
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
 struct Known {
@@ -129,6 +132,9 @@ pub(super) struct Tracker {
     /// Where each user is in voice, by server and user id; DM and group DM
     /// calls go under [`PRIVATE`].
     voice: HashMap<(String, String), VoiceEntry>,
+    /// When each voice channel's session began, in Unix seconds, for the
+    /// servers asked; see `Gateway::request_channel_info`.
+    voice_starts: Arc<HashMap<String, u64>>,
     /// The calls in DMs and group DMs, by channel id, with whom each rings.
     calls: HashMap<String, Vec<String>>,
     /// This account's roles, by server id.
@@ -139,6 +145,9 @@ pub(super) struct Tracker {
     /// What friends and DM people are doing: whether they're around, the
     /// line under their name, and their activities in full.
     presences: HashMap<String, Known>,
+    /// Where each shown presence came from, [`FRIENDS`] or a server's id,
+    /// with its `processed_at_timestamp` and how many activities it had.
+    presence_sources: HashMap<String, (String, u64, usize)>,
     /// The account's friends, by user id.
     friends: Vec<String>,
     /// Those this account blocked, by user id.
@@ -200,11 +209,13 @@ impl Tracker {
             kept: Kept::default(),
             names,
             voice: HashMap::new(),
+            voice_starts: Arc::default(),
             calls: HashMap::new(),
             my_roles: HashMap::new(),
             unreads: Unreads::from_ready(ready),
             private: Vec::new(),
             presences: HashMap::new(),
+            presence_sources: HashMap::new(),
             friends: Vec::new(),
             blocked: Vec::new(),
             ignored: Vec::new(),
@@ -327,22 +338,9 @@ impl Tracker {
                     .into_iter()
                     .flatten()
                 {
-                    self.presence(presence["user_id"].as_str(), presence);
+                    self.presence(presence["user_id"].as_str(), FRIENDS, presence);
                 }
-                // Servers' presences, for the people of DMs who aren't
-                // friends but share a server, as Discord's DM list shows them.
-                for presence in data["merged_presences"]["guilds"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_array)
-                    .flatten()
-                {
-                    let user = presence["user_id"].as_str();
-                    if user.is_some_and(|user| self.in_private(user)) {
-                        self.presence(user, presence);
-                    }
-                }
+                // Who is in voice first: their presences are kept too.
                 for guild in data["guilds"].as_array().into_iter().flatten() {
                     let Some(id) = guild["id"].as_str() else {
                         continue;
@@ -351,9 +349,39 @@ impl Tracker {
                         self.voice_state(id, state);
                     }
                 }
+                // Servers' presences, for friends, the people of DMs and those
+                // in voice, as Discord's lists show them; they come in the
+                // order of READY's servers.
+                let guilds = data["guilds"].as_array().map_or(&[][..], Vec::as_slice);
+                for (index, presences) in data["merged_presences"]["guilds"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    let source = guilds
+                        .get(index)
+                        .and_then(|guild| guild["id"].as_str())
+                        .unwrap_or_default()
+                        .to_owned();
+                    for presence in presences.as_array().into_iter().flatten() {
+                        let user = presence["user_id"].as_str();
+                        if user.is_some_and(|user| self.keeps_presence_in(&source, user)) {
+                            self.presence(user, &source, presence);
+                        }
+                    }
+                }
                 self.learn_members(&data["guilds"], &data["merged_members"]);
                 true
             }
+            Event::ChannelInfo => {
+                let mut changed = false;
+                for channel in data["channels"].as_array().into_iter().flatten() {
+                    changed |= self.voice_started(channel);
+                }
+                changed
+            }
+            Event::VoiceChannelStartTimeUpdate => self.voice_started(data),
             Event::VoiceStateUpdate => {
                 match data["guild_id"].as_str() {
                     Some(guild) => {
@@ -480,6 +508,16 @@ impl Tracker {
                 server.emojis = std::sync::Arc::new(ready::emojis(&data["emojis"]));
                 true
             }
+            Event::GuildStickersUpdate => {
+                let Some(server) = data["guild_id"]
+                    .as_str()
+                    .and_then(|guild| self.server_mut(guild))
+                else {
+                    return false;
+                };
+                server.stickers = std::sync::Arc::new(ready::stickers(&data["stickers"]));
+                true
+            }
             // Carries the server's own fields, without its channels or members.
             Event::GuildUpdate => {
                 let (Some(update), Some(known)) = (
@@ -587,15 +625,21 @@ impl Tracker {
             // member list takes servers' presences too.
             Event::PresenceUpdate => {
                 let user = data["user"]["id"].as_str();
-                if !data["guild_id"].is_null() && !user.is_some_and(|user| self.in_private(user)) {
+                let source = data["guild_id"].as_str().unwrap_or(FRIENDS).to_owned();
+                if source != FRIENDS && !user.is_some_and(|user| self.keeps_presence_in(&source, user)) {
                     return false;
                 }
-                self.presence(user, data) && self.shows_presence(user)
+                let voice = user.is_some_and(|user| self.in_voice_in(&source, user));
+                let before = voice.then(|| self.voice_game(user)).flatten();
+                let changed = self.presence(user, &source, data);
+                changed
+                    && (self.shows_presence(user) || voice && before != self.voice_game(user))
             }
             // A member list's rows carry presences, which the DMs of those
             // people show too.
             Event::GuildMemberListUpdate => {
                 let mut changed = false;
+                let source = data["guild_id"].as_str().unwrap_or_default().to_owned();
                 for op in data["ops"].as_array().into_iter().flatten() {
                     let items = op["items"].as_array().map_or(&[][..], Vec::as_slice);
                     for member in items
@@ -605,10 +649,13 @@ impl Tracker {
                     {
                         let user = member["user"]["id"].as_str();
                         if member["presence"].is_object()
-                            && user.is_some_and(|user| self.in_private(user))
+                            && user.is_some_and(|user| self.keeps_presence_in(&source, user))
                         {
-                            changed |= self.presence(user, &member["presence"])
-                                && self.shows_presence(user);
+                            let voice = user.is_some_and(|user| self.in_voice_in(&source, user));
+                            let before = voice.then(|| self.voice_game(user)).flatten();
+                            changed |= self.presence(user, &source, &member["presence"])
+                                && (self.shows_presence(user)
+                                    || voice && before != self.voice_game(user));
                         }
                     }
                 }
@@ -822,6 +869,7 @@ impl Tracker {
                 {
                     if let Some(user) = user.as_str() {
                         self.voice.remove(&(guild.to_owned(), user.to_owned()));
+                        self.left_voice(user);
                     }
                 }
                 true
@@ -930,6 +978,30 @@ impl Tracker {
         self.session.is_some() && entry.session.is_some() && entry.session != self.session
     }
 
+    /// Takes in when a voice channel's session began, from an object with
+    /// the channel's `id` and its `voice_start_time` in Unix seconds, null
+    /// once it ended; an object without the field says nothing. Whether
+    /// that changed anything.
+    fn voice_started(&mut self, channel: &Value) -> bool {
+        let (Some(id), Some(started)) = (channel["id"].as_str(), channel.get("voice_start_time"))
+        else {
+            return false;
+        };
+        // Shared with the snapshots, so copied only when it changes.
+        match started.as_u64() {
+            Some(started) if self.voice_starts.get(id) == Some(&started) => false,
+            Some(started) => {
+                Arc::make_mut(&mut self.voice_starts).insert(id.to_owned(), started);
+                true
+            }
+            None if self.voice_starts.contains_key(id) => {
+                Arc::make_mut(&mut self.voice_starts).remove(id);
+                true
+            }
+            None => false,
+        }
+    }
+
     fn voice_state(&mut self, guild: &str, state: &Value) {
         let Some(user) = state["user_id"].as_str() else {
             return;
@@ -954,6 +1026,7 @@ impl Tracker {
             }
             None => {
                 self.voice.remove(&key);
+                self.left_voice(user);
             }
         }
     }
@@ -1070,11 +1143,67 @@ impl Tracker {
         true
     }
 
-    /// Learns someone's presence; returns whether it changed.
-    fn presence(&mut self, user: Option<&str>, data: &Value) -> bool {
+    /// Whether a server's presence of `user` is kept: a friend's, or that
+    /// of someone this account has a DM with.
+    fn keeps_presence(&self, user: &str) -> bool {
+        self.in_private(user) || self.friends.iter().any(|friend| friend == user)
+    }
+
+    /// Whether a server's presence of `user` is kept: theirs as a friend or
+    /// in a DM, or while they're in one of its voice channels, where Discord
+    /// shows the game they stream.
+    fn keeps_presence_in(&self, guild: &str, user: &str) -> bool {
+        self.keeps_presence(user) || self.in_voice_in(guild, user)
+    }
+
+    /// Whether `user` is in one of `guild`'s voice channels.
+    fn in_voice_in(&self, guild: &str, user: &str) -> bool {
+        self.voice.contains_key(&(guild.to_owned(), user.to_owned()))
+    }
+
+    /// The game someone plays, as their presence says: what a voice
+    /// channel's stream popout shows. Only a change of it is news for
+    /// someone known just for being in voice.
+    fn voice_game(&self, user: Option<&str>) -> Option<activity::Activity> {
+        self.presences
+            .get(user?)?
+            .activities
+            .iter()
+            .find(|activity| activity.kind == activity::Kind::Playing)
+            .cloned()
+    }
+
+    /// Forgets the presence of someone who left voice, unless it's kept
+    /// for being a friend or in a DM: the map holds no one it shows nowhere.
+    fn left_voice(&mut self, user: &str) {
+        if !self.keeps_presence(user) && !self.voice.keys().any(|(_, known)| known == user) {
+            self.presences.remove(user);
+            self.presence_sources.remove(user);
+        }
+    }
+
+    /// Learns someone's presence from `source`, [`FRIENDS`] or a server's
+    /// id; returns whether what shows changed. As Discord's client does, the
+    /// newest presence by `processed_at_timestamp` across sources shows, and
+    /// of two as new, the one with more activities: a server's may say a
+    /// friend's custom status is gone before the friends' list does. A
+    /// source's own newer presence always replaces its last one, and so does
+    /// one without a time, such as a member list's row.
+    fn presence(&mut self, user: Option<&str>, source: &str, data: &Value) -> bool {
         let Some(user) = user else {
             return false;
         };
+        let at = data["processed_at_timestamp"].as_u64().unwrap_or_default();
+        let count = data["activities"].as_array().map_or(0, Vec::len);
+        if let Some((from, known_at, known_count)) = self.presence_sources.get(user)
+            && from.as_str() != source
+            && at > 0
+            && (at < *known_at || at == *known_at && count <= *known_count)
+        {
+            return false;
+        }
+        self.presence_sources
+            .insert(user.to_owned(), (source.to_owned(), at, count));
         let presence = Known {
             presence: Presence::parse(data),
             activity: member_list::activity(&data["activities"]),
@@ -1094,7 +1223,7 @@ impl Tracker {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let people = std::iter::once(&self.me).chain(&group.recipients);
-        let heading = format!("Members — {}", group.recipients.len() + 1);
+        let heading = format!("Members—{}", group.recipients.len() + 1);
         let mut members: Vec<_> = people
             .map(|user| {
                 // MemberLists gives this account its own presence.
@@ -1107,12 +1236,16 @@ impl Tracker {
                     group: heading.clone(),
                     presence: known.presence,
                     color: None,
+                    look: None,
+                    group_icon: None,
+                    booster: false,
                     activity: known.activity,
                     activities: known.activities,
                     roles: Arc::default(),
                     timed_out_until: None,
                     tag: names.server_tag(user).cloned(),
                     bot: names.is_bot(user),
+                    owner: group.owner.as_ref() == Some(user),
                 }
             })
             .collect();
@@ -1497,6 +1630,9 @@ impl Tracker {
                 self.presences.get(user),
             )
                 .hash(&mut hasher);
+            if !private.group {
+                names.server_tag(user).hash(&mut hasher);
+            }
         }
         let ringing = self.calls.get(&private.id);
         ringing.is_some().hash(&mut hasher);
@@ -1518,8 +1654,15 @@ impl Tracker {
         let title = match (&private.name, private.recipients.as_slice()) {
             (Some(name), _) => name.clone(),
             (None, []) if private.group => "Unnamed group".into(),
+            // Discord's client names them in the order of their ids.
             (None, recipients) if private.group => {
-                recipients.iter().map(name).collect::<Vec<_>>().join(", ")
+                let mut recipients: Vec<&String> = recipients.iter().collect();
+                recipients.sort_by_key(|user| user.parse::<u64>().unwrap_or(u64::MAX));
+                recipients
+                    .into_iter()
+                    .map(name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             }
             (None, [user, ..]) => nickname(user).unwrap_or_else(|| name(user)).to_owned(),
             (None, []) => "Discord user".into(),
@@ -1553,6 +1696,8 @@ impl Tracker {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                tag: None,
+                game: None,
             })
             .collect();
         let preview = private
@@ -1581,6 +1726,10 @@ impl Tracker {
             person: (!private.group)
                 .then(|| private.recipients.first().cloned())
                 .flatten(),
+            tag: (!private.group)
+                .then(|| private.recipients.first())
+                .flatten()
+                .and_then(|user| names.server_tag(user).cloned()),
             unread: unread && !private.spam,
             mentions: if private.request { 0 } else { mentions },
             last_read,
@@ -1687,6 +1836,8 @@ impl Tracker {
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    tag: names.server_tag(user).cloned(),
+                    game: self.voice_game(Some(user)),
                 });
         }
         for members in voice.values_mut() {
@@ -1772,6 +1923,7 @@ impl Tracker {
             user_id: Some(self.me.clone()),
             account: names.user_name(&self.me).map(|name| Account {
                 name: name.to_owned(),
+                username: names.username(&self.me).unwrap_or_default().to_owned(),
                 avatar: names.avatar(None, &self.me),
                 premium_type: self.premium,
                 mfa_enabled: self.mfa,
@@ -1796,6 +1948,7 @@ impl Tracker {
             playing: self.playing.clone(),
             friend_requests: people.friend_requests,
             voice,
+            voice_starts: self.voice_starts.clone(),
             listed: None,
             viewing: self.viewing.iter().chain(&self.beside).cloned().collect(),
             names: super::SharedNames::new(self.names.clone()),
@@ -2147,6 +2300,41 @@ mod tests {
         );
         assert_eq!(presence(&mut tracker), Some(Presence::Online));
         assert!(!tracker.presences.contains_key("3"));
+    }
+
+    #[test]
+    fn the_newest_presence_shows_as_in_discords_client() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "users": [{"id": "2", "username": "ann"}],
+            "relationships": [{"id": "2", "type": 1}],
+            "private_channels": [{"id": "20", "type": 1, "recipient_ids": ["2"]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let status = json!([{"type": 4, "state": "brb"}]);
+        tracker.apply(
+            &Event::ReadySupplemental,
+            &json!({"guilds": [{"id": "10"}], "merged_presences": {
+                "friends": [{"user_id": "2", "status": "idle", "activities": status,
+                    "processed_at_timestamp": 50}],
+                "guilds": [[{"user_id": "2", "status": "idle", "activities": [],
+                    "processed_at_timestamp": 50}]],
+            }}),
+        );
+        let line = |tracker: &mut Tracker| tracker.snapshot().conversations[0].activity.clone();
+        assert_eq!(line(&mut tracker).as_deref(), Some("brb"), "as new, more activities win");
+        tracker.apply(
+            &Event::PresenceUpdate,
+            &json!({"guild_id": "10", "user": {"id": "2"}, "status": "idle", "activities": [],
+                "processed_at_timestamp": 40}),
+        );
+        assert_eq!(line(&mut tracker).as_deref(), Some("brb"), "an older one doesn't show");
+        tracker.apply(
+            &Event::PresenceUpdate,
+            &json!({"guild_id": "10", "user": {"id": "2"}, "status": "idle", "activities": [],
+                "processed_at_timestamp": 60}),
+        );
+        assert_eq!(line(&mut tracker), None, "a newer server's presence shows the status gone");
     }
 
     #[test]
@@ -2542,9 +2730,9 @@ mod tests {
         assert_eq!(
             members,
             [
-                ("cat".into(), "Members — 2".into(), Presence::Idle),
+                ("cat".into(), "Members—2".into(), Presence::Idle),
                 // MemberLists gives this account its own presence.
-                ("me".into(), "Members — 2".into(), Presence::Offline),
+                ("me".into(), "Members—2".into(), Presence::Offline),
             ]
         );
         assert!(

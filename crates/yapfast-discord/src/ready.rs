@@ -112,6 +112,15 @@ pub struct Timeout {
     pub until: u64,
 }
 
+/// What a role adds to its members' names beside its colour.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct RoleLook {
+    /// The RGB colour its gradient ends in, for a role with two colours.
+    pub second: Option<u32>,
+    /// Its icon: a picture's address, or a Unicode emoji.
+    pub icon: Option<Arc<str>>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Server {
     pub id: String,
@@ -146,6 +155,10 @@ pub struct Server {
     pub role_colors: Arc<HashMap<String, (i64, u32)>>,
     /// Each role's position, by id: higher roles list first.
     pub role_positions: Arc<HashMap<String, i64>>,
+    /// What roles add to their members' names beside a colour, by id: only
+    /// the roles with a second colour or an icon.
+    #[serde(default)]
+    pub role_looks: Arc<HashMap<String, RoleLook>>,
     /// Roles anyone may mention, by id.
     pub mentionable_roles: Arc<HashSet<String>>,
     /// Roles an integration such as a bot or boosting manages, by id: nobody
@@ -163,6 +176,22 @@ pub struct Server {
     /// Verified or Partnered, which Discord's client won't give away.
     #[serde(default)]
     pub verified: bool,
+    /// Partnered rather than verified, for the header's badge.
+    #[serde(default)]
+    pub partnered: bool,
+    /// Listed in Server Discovery: a white globe badge before its name.
+    #[serde(default)]
+    pub discoverable: bool,
+    /// Its onboarding, which Discord's channel list opens from Channels &
+    /// Roles (`GUILD_ONBOARDING`).
+    #[serde(default)]
+    pub onboarding: bool,
+    /// How many boosts it has, and whether it shows its boost goal's bar
+    /// over the channel list.
+    #[serde(default)]
+    pub boosts: u64,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// A Community server, where the channel list may list only the
     /// channels this account follows; see
     /// [`crate::marked::MarkedServer::follows_only`].
@@ -186,6 +215,9 @@ pub struct Server {
     pub mfa_level: u8,
     /// Its custom emoji, by name.
     pub emojis: Arc<Vec<Emoji>>,
+    /// Its stickers, by name.
+    #[serde(default)]
+    pub stickers: Arc<Vec<GuildSticker>>,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -204,6 +236,35 @@ pub struct Emoji {
     /// Usable: a server that loses boosts keeps emoji it no longer has room for,
     /// unavailable.
     pub available: bool,
+}
+
+/// A server's sticker: its id, name, Discord's format (1 PNG, 2 APNG,
+/// 3 Lottie, 4 GIF), and whether it's usable.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GuildSticker {
+    pub id: String,
+    pub name: String,
+    pub format: u8,
+    pub available: bool,
+}
+
+/// A server's sticker list, from a guild object or GUILD_STICKERS_UPDATE.
+pub fn stickers(list: &Value) -> Vec<GuildSticker> {
+    let mut stickers: Vec<GuildSticker> = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|sticker| {
+            Some(GuildSticker {
+                id: sticker["id"].as_str()?.to_owned(),
+                name: sticker["name"].as_str()?.to_owned(),
+                format: u8::try_from(sticker["format_type"].as_u64().unwrap_or(1)).unwrap_or(1),
+                available: sticker["available"].as_bool().unwrap_or(true),
+            })
+        })
+        .collect();
+    stickers.sort_by_key(|sticker| sticker.name.to_lowercase());
+    stickers
 }
 
 /// A server's emoji list, from a guild object or GUILD_EMOJIS_UPDATE.
@@ -259,6 +320,10 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// How many may be in a voice channel at once, as `user_limit` says; 0
+    /// for no limit.
+    #[serde(default)]
+    pub user_limit: u16,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -501,6 +566,8 @@ pub struct Private {
     pub icon: Option<String>,
     /// Everyone in it besides this account.
     pub recipients: Vec<String>,
+    /// Who owns a group DM, whose name its member list crowns.
+    pub owner: Option<String>,
     /// A message request: someone outside this account's DMs wrote, and it
     /// waits to be accepted or ignored.
     pub request: bool,
@@ -544,6 +611,7 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
             )
         }),
         recipients,
+        owner: channel["owner_id"].as_str().map(str::to_owned),
         request: spam || channel["is_message_request"] == true,
         spam,
         id,
@@ -1067,6 +1135,30 @@ pub fn role(role: &Value) -> Option<(String, u64)> {
     Some((role["id"].as_str()?.to_owned(), bits(&role["permissions"])))
 }
 
+/// What a role object adds to its members' names beside its colour.
+fn role_look(id: &str, value: &Value) -> RoleLook {
+    RoleLook {
+        second: value["colors"]["secondary_color"]
+            .as_u64()
+            .and_then(|color| u32::try_from(color).ok()),
+        icon: value["icon"]
+            .as_str()
+            .filter(|hash| {
+                !hash.is_empty()
+                    && hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            })
+            .map(|hash| format!("{}/role-icons/{id}/{hash}.png?size=64", cdn()).into())
+            .or_else(|| {
+                value["unicode_emoji"]
+                    .as_str()
+                    .filter(|emoji| !emoji.is_empty())
+                    .map(Arc::from)
+            }),
+    }
+}
+
 impl Server {
     /// Adds or replaces a role from a role object.
     pub fn put_role(&mut self, value: &Value) {
@@ -1096,7 +1188,20 @@ impl Server {
                     Arc::make_mut(&mut self.role_colors).remove(&id);
                 }
             }
+            self.put_role_look(&id, role_look(&id, value));
             Arc::make_mut(&mut self.roles).insert(id, permissions);
+        }
+    }
+
+    /// Keeps what a role adds to names, copying the shared map only when
+    /// that changes.
+    fn put_role_look(&mut self, id: &str, look: RoleLook) {
+        if look == RoleLook::default() {
+            if self.role_looks.contains_key(id) {
+                Arc::make_mut(&mut self.role_looks).remove(id);
+            }
+        } else if self.role_looks.get(id) != Some(&look) {
+            Arc::make_mut(&mut self.role_looks).insert(id.to_owned(), look);
         }
     }
 
@@ -1106,6 +1211,9 @@ impl Server {
         Arc::make_mut(&mut self.role_names).remove(id);
         Arc::make_mut(&mut self.role_colors).remove(id);
         Arc::make_mut(&mut self.role_positions).remove(id);
+        if self.role_looks.contains_key(id) {
+            Arc::make_mut(&mut self.role_looks).remove(id);
+        }
         Arc::make_mut(&mut self.mentionable_roles).remove(id);
         Arc::make_mut(&mut self.managed_roles).remove(id);
     }
@@ -1163,6 +1271,32 @@ impl Server {
             .filter_map(|role| self.role_colors.get(role))
             .max_by_key(|(position, _)| *position)
             .map(|(_, color)| *color)
+    }
+
+    /// What a member's roles add to their name beside [`Server::color`]:
+    /// the second colour of the role that colours it, and the icon of
+    /// their highest role with one. None for a member with neither.
+    pub fn look(&self, roles: &[String]) -> Option<RoleLook> {
+        if self.role_looks.is_empty() {
+            return None;
+        }
+        let second = roles
+            .iter()
+            .filter_map(|role| Some((self.role_colors.get(role)?.0, role)))
+            .max_by_key(|(position, _)| *position)
+            .and_then(|(_, role)| self.role_looks.get(role)?.second);
+        let icon = roles
+            .iter()
+            .filter_map(|role| {
+                let icon = self.role_looks.get(role)?.icon.as_ref()?;
+                Some((
+                    self.role_positions.get(role).copied().unwrap_or_default(),
+                    icon,
+                ))
+            })
+            .max_by_key(|(position, _)| *position)
+            .map(|(_, icon)| icon.clone());
+        (second.is_some() || icon.is_some()).then_some(RoleLook { second, icon })
     }
 }
 
@@ -1236,6 +1370,7 @@ pub fn server(guild: &Value) -> Option<Server> {
             .or_else(|| guild["properties"]["mfa_level"].as_u64())
             .map_or(0, |level| u8::try_from(level).unwrap_or(1)),
         emojis: Arc::new(emojis(&guild["emojis"])),
+        stickers: Arc::new(stickers(&guild["stickers"])),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1243,6 +1378,17 @@ pub fn server(guild: &Value) -> Option<Server> {
         unavailable: guild["unavailable"].as_bool().unwrap_or(false),
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
+        partnered: has("PARTNERED") && !has("VERIFIED"),
+        discoverable: has("DISCOVERABLE"),
+        onboarding: has("GUILD_ONBOARDING"),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .unwrap_or_default(),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         community: has("COMMUNITY"),
         rules_channel: guild["properties"]["rules_channel_id"]
             .as_str()
@@ -1385,6 +1531,10 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         slowmode: channel["rate_limit_per_user"]
             .as_u64()
             .and_then(|seconds| u32::try_from(seconds).ok())
+            .unwrap_or_default(),
+        user_limit: channel["user_limit"]
+            .as_u64()
+            .and_then(|limit| u16::try_from(limit).ok())
             .unwrap_or_default(),
         ..Default::default()
     })
@@ -1706,6 +1856,22 @@ mod tests {
             Access::Join,
             "administrators too"
         );
+    }
+
+    #[test]
+    fn the_header_shows_badges_boosts_and_onboarding_from_features() {
+        let server = server(&json!({
+            "id": "10",
+            "premium_subscription_count": 578,
+            "properties": {
+                "name": "Test",
+                "features": ["DISCOVERABLE", "GUILD_ONBOARDING", "COMMUNITY"],
+                "premium_progress_bar_enabled": true,
+            },
+        }))
+        .unwrap();
+        assert!(server.discoverable && server.onboarding && !server.verified);
+        assert_eq!((server.boosts, server.boost_bar), (578, true));
     }
 
     #[test]

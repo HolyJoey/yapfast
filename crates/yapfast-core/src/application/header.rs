@@ -31,6 +31,43 @@ impl Application {
         effects
     }
 
+    pub(super) fn show_inbox(&mut self, shown: bool) -> Vec<Effect> {
+        if !shown || !self.state.discord_online {
+            self.state.inbox = None;
+            return vec![];
+        }
+        self.state.inbox = Some(Inbox::default());
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Mentions(None)))]
+    }
+
+    /// Asks for the mentions older than the last listed, once at a time.
+    pub(super) fn more_mentions(&mut self) -> Vec<Effect> {
+        let Some(inbox) = self.state.inbox.as_mut().filter(|inbox| inbox.more && !inbox.loading_more) else {
+            return vec![];
+        };
+        let Some(Ok(last)) = inbox.hits.as_ref().map(|hits| hits.as_ref().map(|hits| hits.last())) else {
+            return vec![];
+        };
+        let Some(id) = last.and_then(|hit| hit.message.item.strip_prefix("d:")).map(str::to_owned) else {
+            return vec![];
+        };
+        inbox.loading_more = true;
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Mentions(Some(id))))]
+    }
+
+    /// Takes a mention out of the Inbox at once, then out of Discord's.
+    pub(super) fn dismiss_mention(&mut self, item: String) -> Vec<Effect> {
+        let Some(Some(Ok(hits))) = self.state.inbox.as_mut().map(|inbox| inbox.hits.as_mut()) else {
+            return vec![];
+        };
+        let before = hits.len();
+        hits.retain(|hit| hit.message.item != item);
+        let Some(id) = item.strip_prefix("d:").filter(|_| hits.len() < before) else {
+            return vec![];
+        };
+        vec![Effect::Backend(Command::Discord(DiscordCommand::DismissMention(id.to_owned())))]
+    }
+
     pub(super) fn pins_came(&mut self, room: String, result: Result<Vec<ChatMessage>, String>) {
         if let Some(pins) = self.state.pins.as_mut().filter(|pins| pins.room == room) {
             pins.messages = Some(result);

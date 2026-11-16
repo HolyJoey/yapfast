@@ -296,6 +296,7 @@ impl Adapter {
         self.history.note(&self.app.state, window);
         self.show_workspace(window);
         self.show_sidebar(window);
+        self.show_peek(window);
         self.show_account(window);
         // A server's search stays, with its words, in the server's channels.
         if changes.selection && self.app.state.search_shown().is_none() {
@@ -392,20 +393,14 @@ impl Adapter {
                 .iter()
                 .any(|room| room.direct && room.unread > 0),
         );
-        // As in Discord, the DM home counts DM mentions and the friend
-        // requests waiting for an answer.
-        let dm_mentions: u64 = state
-            .rooms
-            .iter()
-            .filter(|room| room.direct)
-            .map(|room| room.mentions)
-            .sum();
+        // As in Discord, the DM home counts the friend requests waiting for
+        // an answer; DMs with unread messages show on the rail themselves.
         let incoming = state
             .friend_requests
             .iter()
             .filter(|request| request.incoming && !request.spam)
             .count() as u64;
-        window.set_dms_badge(count_badge(dm_mentions + incoming));
+        window.set_dms_badge(count_badge(incoming));
         window.set_discord_linked(
             state.discord_linked || state.servers.iter().any(|server| server.discord),
         );
@@ -459,6 +454,61 @@ impl Adapter {
         }
         window.set_show_hidden_channels(state.show_hidden_channels);
         window.set_sync_discord_reads(state.sync_discord_reads);
+    }
+
+    /// The preview of a stream the pointer is on, on every refresh: the
+    /// channel list it comes from is built again only when it changed, and
+    /// Discord's answer changes nothing in it.
+    fn show_peek(&self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        // The open server's banner, badges and boost goal, which a server
+        // update changes without the channel list changing.
+        let server = match &state.navigation {
+            Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+            Navigation::DirectMessages => None,
+        };
+        window.set_header_server_boost(server.map_or(0, |server| i32::from(server.boost_tier)));
+        window.set_header_server_banner(
+            server
+                .and_then(|server| server.banner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_header_server_badge(server.map_or(0, |server| match server.badge {
+            yapfast_core::chat::ServerBadge::None => 0,
+            yapfast_core::chat::ServerBadge::Verified => 1,
+            yapfast_core::chat::ServerBadge::Partnered => 2,
+            yapfast_core::chat::ServerBadge::Discoverable => 3,
+        }));
+        window.set_header_server_boosts(
+            server
+                .and_then(|server| server.boost_bar)
+                .map_or(-1, |boosts| i32::try_from(boosts).unwrap_or(i32::MAX)),
+        );
+        window.set_header_server_onboarding(server.is_some_and(|server| server.onboarding));
+        let peek = state.stream_peek.as_ref();
+        window.set_peek_open(peek.is_some());
+        window.set_peek_answered(peek.is_some_and(|peek| peek.answered));
+        window.set_peek_url(peek.and_then(|peek| peek.url.as_deref()).unwrap_or_default().into());
+        let streamer = peek.and_then(|peek| {
+            state
+                .rooms
+                .iter()
+                .find(|room| room.id == peek.room)?
+                .people
+                .iter()
+                .find(|person| person.id == peek.user)
+        });
+        window.set_peek_name(streamer.map_or("", |person| person.name.as_str()).into());
+        // The game they play, under the picture as in Discord's popout.
+        #[cfg(feature = "discord")]
+        let game = streamer.and_then(|person| person.game.as_deref());
+        #[cfg(feature = "discord")]
+        window.set_peek_has_game(game.is_some());
+        #[cfg(feature = "discord")]
+        if let Some(game) = game {
+            window.set_peek_game(super::profile::activity_row(game));
+        }
     }
 
     /// The rail, the channel or DM list, and the friends and requests screens,
@@ -527,6 +577,7 @@ impl Adapter {
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+        window.set_rail_unread_bottom(unread_bottom(&rail, window.get_can_join_server()));
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         let mut listed_text = false;
         let mut listed_voice = false;
@@ -557,6 +608,14 @@ impl Adapter {
         // The friends list, those around first; filtered by the screen's search.
         let friend_query = window.get_friend_filter().to_lowercase();
         let in_voice = voice_places(state, &rooms_by_id);
+        // Who is in a DM's call this account can see, as Discord says
+        // "In a call" under them.
+        let in_call: std::collections::HashSet<&str> = state
+            .rooms
+            .iter()
+            .filter(|room| room.direct && room.network == Network::Discord)
+            .flat_map(|room| room.people.iter().map(|person| person.id.as_str()))
+            .collect();
         let friend_rows: Vec<_> = state
             .friends
             .iter()
@@ -579,11 +638,9 @@ impl Adapter {
                     activity_emoji,
                     game,
                     name_font: looks.font,
-                    name_effect: looks.effect,
-                    name_color_a: looks.color_a,
-                    name_color_b: looks.color_b,
                     decoration: looks.decoration,
                     nameplate: looks.nameplate,
+                    palette: looks.palette,
                     tag: friend
                         .tag
                         .as_ref()
@@ -719,7 +776,15 @@ impl Adapter {
                 } else {
                     String::new()
                 };
-                let (detail, detail_emoji) = dm_detail(room);
+                let calling = room
+                    .person
+                    .as_deref()
+                    .is_some_and(|person| in_call.contains(person));
+                let (detail, detail_emoji) = if calling {
+                    ("In a call".into(), SharedString::default())
+                } else {
+                    dm_detail(room)
+                };
                 let voice = room
                     .person
                     .as_deref()
@@ -732,7 +797,11 @@ impl Adapter {
                     heading: heading.into(),
                     icon: self.icons.room(room),
                     selected: Some(&room.id) == state.selected.as_ref(),
-                    unread: room.unread > 0,
+                    editable: !room.direct && room.parent.is_none() && self.app.may_edit_channel(&room.id),
+                    // A voice channel's chat marks nothing unread, as in Discord.
+                    unread: room.unread > 0 && !room.voice,
+                    limit: i32::from(room.user_limit),
+                    since: super::profile::clock_seconds(room.voice_since),
                     badge: mention_badge(room),
                     voice: room.voice,
                     chat: room.voice_chat(),
@@ -778,6 +847,19 @@ impl Adapter {
                                 elsewhere: person.elsewhere,
                                 person: person.id.clone().into(),
                                 connected: true,
+                                tag: person
+                                    .tag
+                                    .as_ref()
+                                    .map_or_else(SharedString::default, |tag| {
+                                        tag.text.as_str().into()
+                                    }),
+                                tag_badge: person
+                                    .tag
+                                    .as_ref()
+                                    .and_then(|tag| tag.badge.as_deref())
+                                    .unwrap_or_default()
+                                    .into(),
+                                name_font: person.tag.as_ref().map_or(0, |tag| i32::from(tag.font)),
                                 ..Default::default()
                             })
                             .collect();
@@ -793,8 +875,27 @@ impl Adapter {
                         presence_name(room.presence)
                     }
                     .into(),
+                    // A game shows after Discord's controller.
+                    calling,
+                    private: room.private,
+                    playing: !calling
+                        && room.person.is_some()
+                        && room.activity.as_deref().is_some_and(|line| {
+                            super::profile::plays(line, &room.activities)
+                        }),
                     detail,
                     detail_emoji,
+                    tag: room
+                        .tag
+                        .as_ref()
+                        .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+                    tag_badge: room
+                        .tag
+                        .as_ref()
+                        .and_then(|tag| tag.badge.as_deref())
+                        .unwrap_or_default()
+                        .into(),
+                    name_font: room.tag.as_ref().map_or(0, |tag| i32::from(tag.font)),
                     voice_room: voice.map_or("", |place| place.room).into(),
                     voice_channel: voice.map_or("", |place| place.channel).into(),
                     voice_server: voice.map_or("", |place| place.server).into(),
@@ -848,10 +949,16 @@ impl Adapter {
                 .iter()
                 .any(|known| known.discord && &known.id == server)
         {
+            // Discord's "+" on a heading, for who may make channels there.
+            let creates = self
+                .app
+                .menu_choices(server)
+                .contains(&yapfast_core::application::MenuChoice::CreateChannel);
             for row in rows.iter_mut().skip(in_pinned) {
                 if !row.heading.is_empty() {
                     places.push(row.category.to_string());
                     row.heading_place = places.len() as i32;
+                    row.heading_creates = creates;
                 }
                 if !row.hidden && !row.thread && !row.collapsed {
                     places.push(row.id.to_string());
@@ -915,6 +1022,7 @@ impl Adapter {
             .unwrap_or_else(|| display_part(account));
         window.set_account(account.into());
         window.set_account_name(account_name.into());
+        window.set_account_username(state.account_username.as_deref().unwrap_or_default().into());
         window.set_account_initial(initial(account_name));
         window.set_account_tint(tint(account_name));
         window.set_account_picture(cached_picture(
@@ -929,11 +1037,29 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
+        // Without a custom status, what this account does shows there, as
+        // in Discord's panel: its music or game, as others see it, else
+        // the game Yapfast tells Discord of.
+        let doing = state
+            .discord_user
+            .as_deref()
+            .filter(|_| state.online && !state.preview && custom_status.is_none())
+            .and_then(|me| state.person(me))
+            .and_then(|me| me.activity)
+            .or_else(|| {
+                state
+                    .discord_playing
+                    .as_ref()
+                    .filter(|_| state.discord_show_game && custom_status.is_none() && state.online)
+                    .map(|playing| format!("Playing {}", playing.name))
+            });
         window.set_account_status(
             if state.preview {
                 "Local only"
             } else if let Some(status) = &custom_status {
                 status
+            } else if let Some(doing) = &doing {
+                doing
             } else if let Some(status) = &state.account_status {
                 status
             } else if state.online {
@@ -1297,6 +1423,7 @@ impl Adapter {
         let room = state.selected_room();
         window.set_room_selected(room.is_some());
         window.set_room_name(room.map_or("", |room| room.name.as_str()).into());
+        window.set_room_editable(room.is_some_and(|room| self.app.may_edit_channel(&room.id)));
         window.set_room_direct(room.is_some_and(|room| room.direct));
         window.set_room_presence(presence_name(room.and_then(|room| room.presence)).into());
         let (activity, activity_emoji) =
@@ -1316,6 +1443,11 @@ impl Adapter {
             .into(),
         );
         window.set_room_initial(room.map_or(SharedString::default(), |room| initial(&room.name)));
+        let faces = room
+            .filter(|room| room.direct && room.avatar.is_none())
+            .map_or(&[][..], |room| room.faces.as_slice());
+        window.set_room_face_a(faces.first().map_or("", String::as_str).into());
+        window.set_room_face_b(faces.get(1).map_or("", String::as_str).into());
         window.set_room_tint(room.map_or(slint::Color::default(), |room| tint(&room.id)));
         window.set_room_picture(cached_picture(
             &mut self.pictures,
@@ -1328,12 +1460,36 @@ impl Adapter {
         window.set_room_parent(parent.map_or("", |parent| parent.name.as_str()).into());
         window.set_room_parent_id(parent.map_or("", |parent| parent.id.as_str()).into());
         window.set_room_parent_forum(parent.is_some_and(|parent| parent.forum));
+        window.set_room_owner(
+            room.and_then(|room| room.thread_owner.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
+        // A post's Follow button joins or leaves it, as its menu does.
+        let post_choices = room
+            .filter(|_| parent.is_some_and(|parent| parent.forum))
+            .map(|room| self.app.menu_choices(&room.id))
+            .unwrap_or_default();
+        window.set_post_following(post_choices.contains(&yapfast_core::application::MenuChoice::LeaveThread));
+        window.set_post_follow_offered(
+            post_choices.iter().any(|choice| {
+                matches!(
+                    choice,
+                    yapfast_core::application::MenuChoice::JoinThread
+                        | yapfast_core::application::MenuChoice::LeaveThread
+                )
+            }),
+        );
         window.set_room_icon(if room.is_some_and(|room| room.parent.is_some()) {
             self.icons.thread.clone()
         } else if room.is_some_and(|room| room.voice) {
             self.icons.voice.clone()
         } else if room.is_some_and(|room| room.forum) {
             self.icons.forum.clone()
+        } else if room.is_some_and(|room| room.rules) {
+            self.icons.rules.clone()
+        } else if room.is_some_and(|room| room.announcement) {
+            self.icons.announcement.clone()
         } else if room.is_some_and(|room| room.direct) {
             self.icons.dm.clone()
         } else {
@@ -1351,7 +1507,14 @@ impl Adapter {
         );
         window.set_members_available(state.lists_members());
         window.set_room_id(state.selected.as_deref().unwrap_or_default().into());
-        window.set_room_muted(room.is_some_and(|room| room.muted));
+        // Discord slashes the bell for a channel muted itself, by its
+        // category, or with its whole server.
+        window.set_room_muted(room.is_some_and(|room| {
+            room.muted
+                || state.servers.iter().any(|server| {
+                    server.muted && server.channels.iter().any(|channel| *channel == room.id)
+                })
+        }));
         window.set_can_notify(state.selected.as_deref().is_some_and(|id| {
             state
                 .menu_choices(id)
@@ -1400,15 +1563,18 @@ impl Adapter {
             .as_ref()
             .filter(|pins| Some(pins.room.as_str()) == selected);
         window.set_pins_open(pins.is_some());
+        window.set_pins_empty(
+            pins.is_some_and(|pins| matches!(&pins.messages, Some(Ok(pinned)) if pinned.is_empty())),
+        );
         window.set_pins_note(
             match pins.map(|pins| &pins.messages) {
                 Some(None) => "Loading pinned messages...",
                 Some(Some(Err(error))) => error.as_str(),
                 Some(Some(Ok(pinned))) if pinned.is_empty() => {
                     if state.selected_room().is_some_and(|room| room.direct) {
-                        "This conversation doesn't have any pinned messages yet."
+                        "This direct message doesn't have any pinned messages... yet."
                     } else {
-                        "This channel doesn't have any pinned messages yet."
+                        "This channel doesn't have any pinned messages... yet."
                     }
                 }
                 _ => "",
@@ -1420,6 +1586,27 @@ impl Adapter {
             _ => &[],
         };
         show_found(&self.models.pins, pinned, twelve_hour);
+
+        // Discord's Inbox: the messages that mention this account.
+        window.set_can_inbox(state.discord_online && !state.preview);
+        let inbox = state.inbox.as_ref();
+        window.set_inbox_open(inbox.is_some());
+        window.set_inbox_note(
+            match inbox.map(|inbox| &inbox.hits) {
+                Some(None) => "Loading mentions...",
+                Some(Some(Err(error))) => error.as_str(),
+                Some(Some(Ok(hits))) if hits.is_empty() => "You're all caught up! Mentions will show here.",
+                _ => "",
+            }
+            .into(),
+        );
+        let hits = match inbox.and_then(|inbox| inbox.hits.as_ref()) {
+            Some(Ok(hits)) => hits.as_slice(),
+            _ => &[],
+        };
+        show_mentions(&self.models.inbox, state, hits, twelve_hour);
+        window.set_inbox_more(inbox.is_some_and(|inbox| inbox.more));
+        window.set_inbox_loading_more(inbox.is_some_and(|inbox| inbox.loading_more));
 
         let search = state.search_shown();
         let server = search.is_some_and(|search| discord::parse_server(&search.place).is_some());
@@ -1530,6 +1717,30 @@ impl Adapter {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
         };
+        // A Discord DM's list crowns its owner and says who is in its call.
+        let dm = state
+            .selected
+            .as_ref()
+            .and_then(|id| state.rooms.iter().find(|room| &room.id == id))
+            .filter(|room| room.direct && room.network == Network::Discord);
+        let in_call = |id: &str| dm.is_some_and(|room| room.people.iter().any(|person| person.id == id));
+        // Who is in one of the open server's voice channels: Discord's list
+        // says "In voice" under them.
+        let server = state
+            .selected
+            .as_deref()
+            .and_then(discord::parse_room)
+            .map(|(guild, _)| guild)
+            .filter(|guild| *guild != discord::DM_GUILD);
+        let in_voice = |id: &str| {
+            server.is_some_and(|guild| {
+                state.rooms.iter().any(|room| {
+                    room.voice
+                        && discord::parse_room(&room.id).is_some_and(|(of, _)| of == guild)
+                        && room.people.iter().any(|person| person.id == id)
+                })
+            })
+        };
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -1549,12 +1760,36 @@ impl Adapter {
                     // game after a controller.
                     let (game, rest) =
                         game_and_status(member.activity.as_deref(), &member.activities);
-                    let playing = rest.is_none() && !game.is_empty();
+                    let playing = !game.is_empty();
+                    let dotted = playing && rest.is_some();
                     let looks = row_looks(member.tag.as_ref());
-                    let (activity, activity_emoji) = if playing {
+                    let voiced = !in_call(&member.id) && in_voice(&member.id);
+                    let calling = in_call(&member.id) || voiced;
+                    let (mut activity, activity_emoji) = if calling {
+                        (if voiced { "In voice" } else { "In a call" }.into(), SharedString::default())
+                    } else if playing && !dotted {
                         (game, SharedString::default())
                     } else {
                         activity_line(rest.as_deref())
+                    };
+                    let (playing, dotted) = (playing && !calling, dotted && !calling);
+                    // Spotify's mark stands for the note the line starts with.
+                    let spotify = !playing
+                        && !calling
+                        && super::profile::hears_spotify(&member.activities)
+                        && activity.starts_with('\u{266b}');
+                    if spotify {
+                        activity = activity.trim_start_matches('\u{266b}').trim_start().into();
+                    }
+                    let (color_to, role_icon, role_emoji) =
+                        super::profile::role_look(member.role_look.as_deref());
+                    // The icon of the role a heading names, with the heading.
+                    let (heading_icon, heading_emoji) = if index == 0
+                        || members[index - 1].group != member.group
+                    {
+                        super::profile::role_icon(member.group_icon.as_deref())
+                    } else {
+                        Default::default()
                     };
                     MemberRow {
                         id: member.id.clone().into(),
@@ -1567,16 +1802,24 @@ impl Adapter {
                         presence: presence_name(member.presence).into(),
                         color: role_color(member.color),
                         has_color: member.color.is_some(),
+                        color_to,
+                        role_icon,
+                        role_emoji,
+                        heading_icon,
+                        heading_emoji,
+                        booster: member.booster,
+                        owner: member.role == Role::Admin && member.group.is_some(),
+                        calling,
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
                         playing,
+                        dotted,
+                        spotify,
                         name_font: looks.font,
-                        name_effect: looks.effect,
-                        name_color_a: looks.color_a,
-                        name_color_b: looks.color_b,
                         decoration: looks.decoration,
                         nameplate: looks.nameplate,
+                    palette: looks.palette,
                         tag: member
                             .tag
                             .as_ref()
@@ -2088,7 +2331,8 @@ impl Adapter {
             return;
         };
         let category = dialog.kind == ChannelKind::Category;
-        let thing = if category { "category" } else { "channel" };
+        // Discord's words, in its case.
+        let thing = if category { "Category" } else { "Channel" };
         let named = |name: &str| {
             if dialog.kind == ChannelKind::Text {
                 format!("#{name}")
@@ -2107,12 +2351,12 @@ impl Adapter {
                 format!("Create {thing}"),
             ),
             ChannelAsk::Duplicate(_) => (
-                "Duplicate channel".to_owned(),
+                "Duplicate Channel".to_owned(),
                 format!(
                     "A copy of {}, with its settings and permissions, in the same category.",
                     named(&dialog.name)
                 ),
-                "Create channel".to_owned(),
+                "Create Channel".to_owned(),
             ),
             ChannelAsk::Delete(_) => (
                 format!("Delete {thing}"),
@@ -2273,7 +2517,7 @@ impl Adapter {
             )
         } else {
             (
-                "Edit server profile",
+                "Edit Per-server Profile",
                 format!("Your profile in {}", editor.server_name),
                 "Tell this server a bit about yourself",
             )
@@ -2340,7 +2584,7 @@ impl Adapter {
                 leave.name
             )
             .into(),
-            confirm: format!("Leave {what}").into(),
+            confirm: if leave.group { "Leave Group" } else { "Leave Server" }.into(),
             option: if leave.group {
                 "Leave without notifying other members".into()
             } else {
@@ -2890,6 +3134,26 @@ impl Adapter {
         let rows = staged_rows(&mut self.thumbnails, &self.runtime, &self.weak, staged);
         update_model(&self.models.staged, rows);
         window.set_confirm_delete(state.confirm_delete.clone().unwrap_or_default().into());
+        if let Some(message) = state.confirm_delete.as_deref().and_then(|item| state.message(item)) {
+            // Discord's words, with a line of the message to say which.
+            let said: String = message.body.chars().take(120).collect();
+            window.set_delete_prompt(ChannelPrompt {
+                title: "Delete Message".into(),
+                detail: if said.trim().is_empty() {
+                    "Are you sure you want to delete this message?".into()
+                } else {
+                    format!(
+                        "Are you sure you want to delete this message?\n\n{}: {}",
+                        message.author,
+                        said.replace('\n', " ")
+                    )
+                    .into()
+                },
+                confirm: "Delete".into(),
+                danger: true,
+                ..Default::default()
+            });
+        }
         window
             .global::<Polls>()
             .set_confirm_end(state.confirm_end_poll.clone().unwrap_or_default().into());
@@ -2957,6 +3221,12 @@ impl Adapter {
                     super::menus::until(until / 1000, self.layout.twelve_hour_clock)
                 )
             });
+        window.set_composer_locked(
+            timed_out.is_none()
+                && !state.preview
+                && discord_room
+                && room.is_some_and(|room| !room.request && (room.read_only || room.locked)),
+        );
         window.set_composer_hint(
             if room.is_none() {
                 "Choose a DM or server channel to write a message."
@@ -2971,7 +3241,8 @@ impl Adapter {
             } else if let Some(timed_out) = &timed_out {
                 timed_out
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
-                "You can't send messages in this Discord channel."
+                // The field says so itself, as Discord's does.
+                ""
             } else if discord_room && !state.discord_online {
                 "Discord is disconnected. Yapfast is reconnecting."
             } else if discord_only {
@@ -3226,6 +3497,7 @@ impl Adapter {
                 .map(|room| (room.id.as_str(), &**room))
                 .collect();
             let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+            window.set_rail_unread_bottom(unread_bottom(&rail, window.get_can_join_server()));
             update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         }
         let timed = matches!(state.voice.phase, Phase::Connected | Phase::Reconnecting)
@@ -3239,6 +3511,19 @@ impl Adapter {
             room.is_some_and(|room| voice.room.as_ref() == Some(&room.id)) && voice.active();
         let account = state.account.as_deref().unwrap_or("Preview");
         window.set_voice_active(voice.active());
+        // In a call, the account panel says so, as Discord's does: "In a
+        // call" for a DM's, "In voice" for a server's channel.
+        window.set_account_calling(voice.active());
+        window.set_account_call_line(
+            if voice.room.as_ref().is_some_and(|id| {
+                state.rooms.iter().any(|room| &room.id == id && room.direct)
+            }) {
+                "In a call"
+            } else {
+                "In voice"
+            }
+            .into(),
+        );
         // The account panel's picture rings as the account's own row in the call does.
         window.set_account_speaking(
             voice.active()
@@ -3315,13 +3600,13 @@ impl Adapter {
             Phase::Disconnected => 2,
             _ => 0,
         });
+        // Just where the call is, as Discord's panel says; how it's
+        // secured shows in the connection's details.
         window.set_voice_detail(
             if state.preview {
                 format!("{} · Sample", voice.name)
-            } else if voice.end_to_end {
-                format!("{} · End-to-end encrypted", voice.name)
             } else {
-                format!("{} · Secure connection", voice.name)
+                voice.name.clone()
             }
             .into(),
         );
@@ -3342,7 +3627,7 @@ impl Adapter {
                 Phase::Disconnected => "Voice disconnected",
                 Phase::Joining => "Joining voice...",
                 Phase::Connected if state.preview => "Preview voice",
-                Phase::Connected => "Voice connected",
+                Phase::Connected => "Voice Connected",
                 Phase::Reconnecting => "Reconnecting voice...",
                 Phase::Leaving => "Leaving voice...",
             }
@@ -3435,6 +3720,15 @@ impl Adapter {
         );
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
+        // What each wears on Discord, from the channel's own list of people.
+        let worn = |person: &str| {
+            voice
+                .room
+                .as_deref()
+                .and_then(|room| state.rooms.iter().find(|listed| listed.id == room))
+                .and_then(|room| room.people.iter().find(|listed| listed.id == person))
+                .and_then(|listed| listed.tag.as_deref())
+        };
         update_model(
             &self.models.participants,
             if voice.active() {
@@ -3442,6 +3736,13 @@ impl Adapter {
                     .participants
                     .iter()
                     .map(|person| PersonRow {
+                        tag: worn(&person.person)
+                            .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+                        tag_badge: worn(&person.person)
+                            .and_then(|tag| tag.badge.as_deref())
+                            .unwrap_or_default()
+                            .into(),
+                        name_font: worn(&person.person).map_or(0, |tag| i32::from(tag.font)),
                         id: person.id.clone().into(),
                         local: person.local,
                         name: display_part(&person.user).into(),
@@ -3486,8 +3787,15 @@ impl Adapter {
                 vec![]
             },
         );
+        window.set_call_faces(
+            dm_call.is_some()
+                && !voice
+                    .participants
+                    .iter()
+                    .any(|person| person.video.is_some() || person.streaming),
+        );
         // Viewers in the call's order, as their rows show them.
-        let viewers = |ids: &[String], streamer: Option<&str>| -> Vec<PersonRow> {
+        let viewers =|ids: &[String], streamer: Option<&str>| -> Vec<PersonRow> {
             self.models
                 .participants
                 .iter()
@@ -3909,6 +4217,21 @@ impl Adapter {
         window.set_viewer_frames(frames);
         window.set_viewer_delays(delays);
         window.set_viewer_name(attachment.name.clone().into());
+        // Who posted it and when, as Discord's viewer heads it.
+        window.set_viewer_author(message.author.clone().into());
+        window.set_viewer_author_picture(message.avatar.clone().unwrap_or_default().into());
+        window.set_viewer_author_color(super::profile::role_color(message.color));
+        window.set_viewer_author_colored(message.color.is_some());
+        window.set_viewer_when(
+            yapfast_core::clock::sent(
+                message.timestamp,
+                yapfast_core::clock::now_ms() / 1000,
+                self.layout.twelve_hour_clock,
+                false,
+            )
+            .into(),
+        );
+        window.set_viewer_link(attachment.url.as_deref().unwrap_or_default().into());
         window.set_viewer_item(viewer.item.clone().into());
         window.set_viewer_index(viewer.index as i32);
         let images: Vec<usize> = message
@@ -3929,21 +4252,31 @@ impl Adapter {
 /// The DMs with unread messages, the latest first, as Discord lists them on
 /// its rail above the servers. Message requests and spam stay on their screen.
 pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
-    state
+    // The DM whose call this account is in leads, read or not, marked as
+    // its call, as Discord keeps it at the top of the rail.
+    let call = call_room(state);
+    let mut rooms: Vec<_> = state
         .rooms
         .iter()
         .filter(|room| {
             room.direct
                 && !room.request
                 && room.category != discord::SPAM
-                && (room.unread > 0 || room.mentions > 0)
+                && (room.unread > 0 || room.mentions > 0 || call == Some(room.id.as_str()))
         })
+        .collect();
+    rooms.sort_by_key(|room| call != Some(room.id.as_str()));
+    rooms
+        .into_iter()
         .map(|room| ServerRow {
+            call: call == Some(room.id.as_str()),
             id: room.id.as_str().into(),
             name: room.name.as_str().into(),
             initial: initial(&room.name),
             picture_url: room.avatar.as_deref().unwrap_or_default().into(),
-            unread: true,
+            face_a: room.faces.first().map_or("", String::as_str).into(),
+            face_b: room.faces.get(1).map_or("", String::as_str).into(),
+            unread: room.unread > 0 || room.mentions > 0,
             // Discord counts each of a DM's messages; Matrix counts its
             // unread messages apart from its mentions.
             badge: count_badge(room.mentions.max(room.unread)),
@@ -3952,6 +4285,28 @@ pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
             ..Default::default()
         })
         .collect()
+}
+
+/// The bottom edge of the rail's lowest unread row, in pixels from the
+/// list's top as the rail lays it out, or 0 for none; an unread DM above the
+/// servers counts too, but not a selected server.
+fn unread_bottom(rail: &[ServerRow], can_join: bool) -> i32 {
+    let mut top = 0;
+    let mut bottom = 0;
+    for row in rail {
+        let height = if row.divider {
+            9
+        } else if row.add {
+            if can_join { 48 } else { 0 }
+        } else {
+            48
+        };
+        if (row.unread || !row.badge.is_empty()) && !row.selected {
+            bottom = top + 40;
+        }
+        top += height;
+    }
+    bottom
 }
 
 /// The whole rail: unread DMs, a line, then the servers and folders. Unread
@@ -3968,6 +4323,12 @@ fn rail(
         ..Default::default()
     });
     rail.extend(rail_rows(state, rooms_by_id, open_folders));
+    // Discord's button that adds a server, after the last one.
+    rail.push(ServerRow {
+        id: "yapfast:add-server".into(),
+        add: true,
+        ..Default::default()
+    });
     rail
 }
 
@@ -3989,8 +4350,10 @@ pub(super) fn rail_rows(
                 .filter(|room| !room.direct)
         };
         (
+            // A voice channel's chat marks nothing unread, as in Discord.
             rooms().any(|room| {
-                room.mentions > 0 || (room.unread > 0 && !server.muted && !room.unlisted)
+                room.mentions > 0
+                    || (room.unread > 0 && !room.voice && !server.muted && !room.unlisted)
             }),
             rooms().map(|room| room.mentions).sum::<u64>(),
         )
@@ -4002,13 +4365,28 @@ pub(super) fn rail_rows(
     let in_call = |server: &yapfast_core::chat::ChatServer| {
         call.is_some_and(|room| server.channels.iter().any(|channel| channel == room))
     };
+    // Whether anyone is in one of a server's voice channels, and whether
+    // any of them shares their screen, which Discord marks on its icon.
+    let voices = |server: &yapfast_core::chat::ChatServer| {
+        let mut people = server
+            .channels
+            .iter()
+            .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+            .filter(|room| room.voice)
+            .flat_map(|room| &room.people)
+            .peekable();
+        (people.peek().is_some(), people.any(|person| person.streaming))
+    };
     let mut rows = Vec::with_capacity(state.servers.len());
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
         let Some(folder) = &server.folder else {
             let (unread, mentions) = marks(server);
+            let (voice, live) = voices(server);
             rows.push(ServerRow {
                 call: in_call(server),
+                voice,
+                live,
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4085,6 +4463,8 @@ pub(super) struct VoicePlace<'a> {
     pub room: &'a str,
     pub channel: &'a str,
     pub server: &'a str,
+    /// The address of the server's icon, which Active Now shows.
+    pub icon: Option<&'a str>,
 }
 
 /// Who is in a voice channel of a server this account is in, by user id.
@@ -4106,6 +4486,7 @@ pub(super) fn voice_places<'a>(
                         room: &room.id,
                         channel: &room.name,
                         server: &server.name,
+                        icon: server.icon.as_deref(),
                     },
                 );
             }
@@ -4391,6 +4772,49 @@ fn show_hits(
         model.push(FoundRow {
             room: hit.room.as_str().into(),
             heading: heading.into(),
+            // Discord's Inbox names authors in white, without their roles' colours.
+            has_color: false,
+            ..found_row(&hit.message, twelve_hour)
+        });
+    }
+}
+
+/// The Inbox's mentions, keeping the rows still first: above the first of a
+/// run in one channel, its name and its server's, or the DM's name.
+fn show_mentions(
+    model: &VecModel<FoundRow>,
+    state: &AppState,
+    hits: &[yapfast_core::chat::SearchHit],
+    twelve_hour: bool,
+) {
+    let kept = model
+        .iter()
+        .zip(hits)
+        .take_while(|(row, hit)| row.item == hit.message.item.as_str() && row.room == hit.room.as_str())
+        .count();
+    while model.row_count() > kept {
+        model.remove(model.row_count() - 1);
+    }
+    for (index, hit) in hits.iter().enumerate().skip(kept) {
+        let heading = if index == 0 || hits[index - 1].room != hit.room {
+            let room = state.rooms.iter().find(|room| room.id == hit.room);
+            let server = state
+                .servers
+                .iter()
+                .find(|server| server.channels.iter().any(|channel| *channel == hit.room));
+            match (room, server) {
+                (Some(room), Some(server)) => format!("{} • {}", room.name, server.name),
+                (Some(room), None) => room.name.clone(),
+                (None, _) => "Unknown channel".into(),
+            }
+        } else {
+            String::new()
+        };
+        model.push(FoundRow {
+            room: hit.room.as_str().into(),
+            heading: heading.into(),
+            // Discord's Inbox names authors in white, without their roles' colours.
+            has_color: false,
             ..found_row(&hit.message, twelve_hour)
         });
     }

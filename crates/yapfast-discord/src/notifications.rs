@@ -83,6 +83,15 @@ pub const PINNED: u64 = 1 << 11;
 /// Discord's `OPT_IN_ENABLED`, which its client also sets with the first
 /// pin.
 const OPT_IN_ENABLED: u64 = 1 << 12;
+/// A channel's or category's flags for what counts as unread there: only
+/// mentions, or every message.
+const CHANNEL_UNREADS_MENTIONS: u64 = 1 << 9;
+const CHANNEL_UNREADS_ALL: u64 = 1 << 10;
+
+/// A server's own flags for what counts as unread in it.
+const UNREADS_ALL: u64 = 1 << 11;
+const UNREADS_MENTIONS: u64 = 1 << 12;
+
 /// A server's own flag that lists only the channels followed, which Discord's
 /// client calls turning off Show All Channels: `OPT_IN_CHANNELS_ON`.
 const OPT_IN_CHANNELS_ON: u64 = 1 << 14;
@@ -201,6 +210,35 @@ impl Notifications {
             .find_map(|place| self.overrides.get(place)?.level)
             .or(self.level)
             .unwrap_or(default)
+    }
+
+    /// Whether every message in a channel in `category` counts as unread,
+    /// not only those that mention this account: by the channel's own
+    /// flags, else its category's, else the server's, else where every
+    /// message notifies, as Discord's client resolves it.
+    pub fn unread_all(&self, channel: &str, category: Option<&str>, default: Level) -> bool {
+        let own = [Some(channel), category]
+            .into_iter()
+            .flatten()
+            .find_map(|place| {
+                let flags = self.overrides.get(place)?.flags;
+                if flags & CHANNEL_UNREADS_ALL != 0 {
+                    Some(true)
+                } else if flags & CHANNEL_UNREADS_MENTIONS != 0 {
+                    Some(false)
+                } else {
+                    None
+                }
+            });
+        own.unwrap_or_else(|| {
+            if self.flags & UNREADS_ALL != 0 {
+                true
+            } else if self.flags & UNREADS_MENTIONS != 0 {
+                false
+            } else {
+                self.level(channel, category, default) == Level::All
+            }
+        })
     }
 
     /// Whether the channel list lists only the channels followed, Show

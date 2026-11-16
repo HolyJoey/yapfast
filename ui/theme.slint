@@ -52,6 +52,21 @@ export global Theme {
     out property <duration> quick: 120ms;
 }
 
+/// Now, for activities' and voice channels' timers: seconds since 2020
+/// began, kept current once a second while something on screen is timed.
+export global ActivityClock {
+    in property <int> now;
+    /// How long ago `since` was, as a call's timer says it: `0:42`, `12:05`
+    /// or `1:02:03`.
+    public pure function elapsed(since: int) -> string {
+        let seconds = max(0, self.now - since);
+        let hours = floor(seconds / 3600);
+        let minutes = Math.mod(floor(seconds / 60), 60);
+        let rest = Math.mod(seconds, 60);
+        (hours > 0 ? hours + ":" + (minutes < 10 ? "0" : "") : "") + minutes + ":" + (rest < 10 ? "0" : "") + rest
+    }
+}
+
 // One tooltip for the whole window, drawn above everything else.
 export global Tip {
     in-out property <string> text;

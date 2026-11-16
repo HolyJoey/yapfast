@@ -63,7 +63,7 @@ pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> Mode
 }
 
 #[cfg(feature = "discord")]
-fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
+pub(super) fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
     let seconds = |ms: Option<u64>| {
         ms.map_or(0, |ms| {
             i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
@@ -100,7 +100,7 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         )
     };
     ActivityRow {
-        heading: activity.heading().to_uppercase().into(),
+        heading: activity.heading().into(),
         name: name.into(),
         name_emoji: name_emoji.unwrap_or_default().into(),
         details: details.into(),
@@ -144,6 +144,32 @@ pub(super) fn game_and_status(
     }
 }
 
+/// Whether a line under a name is the game someone plays, which Discord's
+/// lists mark with a controller.
+pub(super) fn plays(line: &str, activities: &yapfast_core::chat::Activities) -> bool {
+    #[cfg(feature = "discord")]
+    return activities.iter().any(|activity| {
+        activity.kind == yapfast_core::chat::ActivityKind::Playing
+            && activity.line().as_deref() == Some(line)
+    });
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = (line, activities);
+        false
+    }
+}
+
+/// Whether someone listens to Spotify, which Discord's lists mark.
+pub(super) fn hears_spotify(activities: &yapfast_core::chat::Activities) -> bool {
+    #[cfg(feature = "discord")]
+    return activities.iter().any(|activity| activity.spotify());
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = activities;
+        false
+    }
+}
+
 /// Whether a line under a name only says what one of the activities does.
 pub(super) fn names_an_activity(line: &str, activities: &yapfast_core::chat::Activities) -> bool {
     #[cfg(feature = "discord")]
@@ -173,7 +199,14 @@ impl Adapter {
                 .friends_active
                 .iter()
                 .any(|row| row.since > 0 || row.start > 0 || row.end > 0);
+        // Voice channels with people in them say how long they've been going.
+        let voice = self
+            .models
+            .rooms
+            .iter()
+            .any(|row| row.since > 0 && row.people.row_count() > 0);
         let shown = active
+            || voice
             || (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
         if !shown {
@@ -230,6 +263,8 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.servers = same_list(&shown.servers, data.servers);
     data.friends = same_list(&shown.friends, data.friends);
     data.activities = same_list(&shown.activities, data.activities);
+    data.badges = same_list(&shown.badges, data.badges);
+    data.connections = same_list(&shown.connections, data.connections);
     data.role_rows = same_role_rows(&shown.role_rows, data.role_rows);
     data.role_rows_large = same_role_rows(&shown.role_rows_large, data.role_rows_large);
     (*shown != data).then_some(data)
@@ -242,6 +277,7 @@ pub(super) fn profile_data(
     view: &ProfileView,
 ) -> ProfileData {
     let profile = &view.profile;
+    let own = state.discord_user.as_deref() == Some(profile.id.as_str());
     let handle = [profile.handle.as_str(), profile.pronouns.as_str()]
         .into_iter()
         .filter(|part| !part.is_empty())
@@ -261,10 +297,26 @@ pub(super) fn profile_data(
         tint: tint(&profile.name),
         picture: cached_picture(pictures, state, profile.avatar.as_deref()),
         handle: handle.into(),
+        // The tag they wear, as their name shows it elsewhere.
+        tag: state
+            .person(&profile.id)
+            .and_then(|person| person.tag)
+            .map_or_else(SharedString::default, |tag| tag.text.as_str().into()),
+        tag_badge: state
+            .person(&profile.id)
+            .and_then(|person| person.tag)
+            .and_then(|tag| tag.badge)
+            .unwrap_or_default()
+            .into(),
         banner: cached_picture(pictures, state, profile.banner.as_deref()),
         accent: role_color(profile.accent),
         has_accent: profile.accent.is_some(),
-        presence: presence_name(profile.presence).into(),
+        // A Discord person whose presence isn't known shows offline, as
+        // Discord's card shows them.
+        presence: presence_name(profile.presence.or_else(|| {
+            (!profile.id.starts_with('@')).then_some(Presence::Offline)
+        }))
+        .into(),
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
         activities: activity_rows(&profile.activities),
@@ -274,10 +326,12 @@ pub(super) fn profile_data(
         role_rows_large: role_rows(&profile.roles, PROFILE_LARGE_WIDTH),
         created: profile.created.clone().unwrap_or_default().into(),
         joined: profile.joined.clone().unwrap_or_default().into(),
+        // One's own shares nothing with oneself, as Discord's says nothing.
         servers: ModelRc::new(VecModel::from(
             profile
                 .servers
                 .iter()
+                .filter(|_| !own)
                 .map(|server| ProfileServerRow {
                     id: server.id.as_str().into(),
                     name: server.name.as_str().into(),
@@ -298,6 +352,7 @@ pub(super) fn profile_data(
             profile
                 .friends
                 .iter()
+                .filter(|_| !own)
                 .map(|friend| {
                     let known = state.friends.iter().find(|known| known.id == friend.id);
                     ProfileFriendRow {
@@ -327,10 +382,36 @@ pub(super) fn profile_data(
         } else {
             friend_offer(state.relation(&profile.id))
         },
-        // Discord's card names them as the profile does.
-        message_hint: if state
-            .person_choices(&profile.id)
-            .contains(&MenuChoice::Message)
+        connections: ModelRc::new(VecModel::from(
+            profile
+                .connections
+                .iter()
+                .map(|(kind, name, link)| {
+                    let (platform, rgb) = platform(kind);
+                    ProfileConnection {
+                        name: name.as_str().into(),
+                        platform: platform.into(),
+                        color: slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8),
+                        letter: platform.chars().next().map(String::from).unwrap_or_default().into(),
+                        link: link.as_deref().unwrap_or_default().into(),
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )),
+        badges: ModelRc::new(VecModel::from(
+            profile
+                .badges
+                .iter()
+                .map(|(url, label)| ProfileBadge {
+                    url: url.as_str().into(),
+                    label: label.as_str().into(),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        // Discord's card names them as the profile does, in their DM too.
+        message_hint: if !own
+            && (state.person_choices(&profile.id).contains(&MenuChoice::Message)
+                || state.rooms.iter().any(|room| room.person.as_deref() == Some(profile.id.as_str())))
         {
             format!("Message @{}", profile.name).into()
         } else {
@@ -360,7 +441,7 @@ pub(super) fn role_rows(roles: &[ProfileRole], width: f32) -> ModelRc<ProfileRol
     let mut rows: Vec<Vec<yapfast_ui::ProfileRole>> = Vec::new();
     let mut used = width;
     for role in roles {
-        let chip = CHROME + 7. * role.name.chars().count() as f32;
+        let chip = CHROME + 7.5 * role.name.chars().count() as f32;
         if used + GAP + chip > width || rows.is_empty() {
             rows.push(Vec::new());
             used = chip;
@@ -384,11 +465,59 @@ pub(super) fn role_rows(roles: &[ProfileRole], width: f32) -> ModelRc<ProfileRol
     ))
 }
 
+/// A connected platform's name and brand colour, as its mark on a profile.
+fn platform(kind: &str) -> (&str, u32) {
+    match kind {
+        "github" => ("GitHub", 0x24292f),
+        "reddit" => ("Reddit", 0xff4500),
+        "steam" => ("Steam", 0x1b2838),
+        "twitch" => ("Twitch", 0x9146ff),
+        "youtube" => ("YouTube", 0xff0000),
+        "twitter" => ("X", 0x000000),
+        "spotify" => ("Spotify", 0x1db954),
+        "tiktok" => ("TikTok", 0x000000),
+        "bluesky" => ("Bluesky", 0x1185fe),
+        "roblox" => ("Roblox", 0x000000),
+        "xbox" => ("Xbox", 0x107c10),
+        "playstation" => ("PlayStation", 0x003791),
+        "battlenet" => ("Battle.net", 0x148eff),
+        "epicgames" => ("Epic Games", 0x313131),
+        "leagueoflegends" | "riotgames" => ("Riot Games", 0xd13639),
+        "crunchyroll" => ("Crunchyroll", 0xf47521),
+        "instagram" => ("Instagram", 0xe1306c),
+        "facebook" => ("Facebook", 0x1877f2),
+        "paypal" => ("PayPal", 0x003087),
+        "ebay" => ("eBay", 0xe53238),
+        "mastodon" => ("Mastodon", 0x6364ff),
+        "amazon-music" => ("Amazon Music", 0x25d1da),
+        _ => ("Website", 0x4e5058),
+    }
+}
+
 /// A Discord role's RGB colour for Slint.
 pub(super) fn role_color(rgb: Option<u32>) -> slint::Color {
     rgb.map_or_else(slint::Color::default, |rgb| {
         slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
     })
+}
+
+/// What a Discord role adds to a name as its row shows it: the colour the
+/// name fades to, transparent for none, and the role's icon as a picture's
+/// address or a Unicode emoji.
+pub(super) fn role_look(
+    look: Option<&yapfast_core::chat::RoleLook>,
+) -> (slint::Color, SharedString, SharedString) {
+    let (url, emoji) = role_icon(look.and_then(|look| look.icon.as_deref()));
+    (role_color(look.and_then(|look| look.second)), url, emoji)
+}
+
+/// A role's icon as a picture's address or a Unicode emoji.
+pub(super) fn role_icon(icon: Option<&str>) -> (SharedString, SharedString) {
+    match icon {
+        Some(url) if url.starts_with("http") => (url.into(), SharedString::default()),
+        Some(emoji) => (SharedString::default(), emoji.into()),
+        None => Default::default(),
+    }
 }
 
 /// Friends doing something, as Discord's Active Now lists them: playing,
@@ -435,10 +564,20 @@ pub(super) fn active_now_rows(
                     voice_room: voice.map_or("", |place| place.room).into(),
                     voice_channel: voice.map_or("", |place| place.channel).into(),
                     voice_server: voice.map_or("", |place| place.server).into(),
+                    name_font: friend.tag.as_ref().map_or(0, |tag| i32::from(tag.font)),
                     ..Default::default()
                 };
                 if let Some(activity) = activity {
                     fill_active_now(&mut row, activity, &players);
+                } else if let Some(place) = voice {
+                    // In voice and nothing else: Discord's card says so, and
+                    // names the server and its channel on the band below.
+                    row.headline = "In a Voice Channel".into();
+                    row.title = place.server.into();
+                    row.subtitle = place.channel.into();
+                    row.large_url = place.icon.unwrap_or_default().into();
+                    row.plain = true;
+                    row.voice_card = true;
                 }
                 Some((friend.name.to_lowercase(), row))
             })
@@ -479,7 +618,12 @@ fn fill_active_now(
     row.large_url = text(&activity.large_image);
     row.small_url = text(&activity.small_image);
     if activity.spotify() {
+        row.spotify = true;
         song_lines(row, activity);
+    } else if activity.kind == ActivityKind::Watching {
+        // Discord's card for watching shows only its headline.
+        row.large_url = SharedString::default();
+        row.small_url = SharedString::default();
     } else if activity.details.is_some() || activity.state.is_some() {
         detail_lines(row, activity);
     } else if playing {
@@ -496,66 +640,74 @@ fn fill_active_now(
 
 /// A time in Unix milliseconds on ActivityClock; 0 for none.
 #[cfg(feature = "discord")]
+/// A Unix time in seconds on ActivityClock; 0 stays 0, for none.
+pub(super) fn clock_seconds(seconds: u64) -> i32 {
+    i32::try_from(seconds.saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
+}
+
 fn activity_seconds(ms: Option<u64>) -> i32 {
     ms.map_or(0, |ms| {
         i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
     })
 }
 
-/// A Spotify song's card: its title, artists and album, and time left.
+/// A Spotify song's card, as Discord's Active Now shows it: its title over
+/// its artists, without the album or the time.
 #[cfg(feature = "discord")]
 fn song_lines(row: &mut ActiveNowRow, activity: &yapfast_core::chat::Activity) {
     let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
     row.title = activity.details.as_deref().unwrap_or(&activity.name).into();
     row.subtitle = text(&activity.state);
-    row.detail = text(&activity.large_text);
-    row.end = activity_seconds(activity.end);
 }
 
-/// A rich presence's card: its details over its state and party, and the
-/// time left, else the time it's run.
+/// A rich presence's card, as Discord's Active Now shows it: its details
+/// over its state and party, without the time; a party of no stated size
+/// isn't counted.
 #[cfg(feature = "discord")]
 fn detail_lines(row: &mut ActiveNowRow, activity: &yapfast_core::chat::Activity) {
-    let state = match (&activity.state, activity.party) {
+    let party = activity.party.filter(|(_, most)| *most > 0);
+    let state = match (&activity.state, party) {
         (Some(state), Some((size, most))) => format!("{state} ({size} of {most})"),
         (None, Some((size, most))) => format!("{size} of {most}"),
         (state, None) => state.as_deref().unwrap_or_default().to_owned(),
     };
     row.title = activity.details.as_deref().unwrap_or(&activity.name).into();
     row.subtitle = state.into();
-    row.end = activity_seconds(activity.end);
-    if row.end == 0 {
-        row.start = activity_seconds(activity.start);
-    }
 }
 
-/// Someone's Discord looks as a row shows them: their name style's font and
-/// effect ids and two colours, and their decoration's and nameplate's
-/// pictures' addresses.
+/// Someone's Discord looks as a row shows them: their name style's font id,
+/// and their decoration's and nameplate's pictures' addresses. The style's
+/// colours aren't shown: Discord's rows keep the name's own colour.
 pub(super) struct RowLooks {
     pub font: i32,
-    pub effect: i32,
-    pub color_a: slint::Color,
-    pub color_b: slint::Color,
     pub decoration: SharedString,
     pub nameplate: SharedString,
+    /// The nameplate's palette's colour, transparent for none.
+    pub palette: slint::Color,
+}
+
+/// The colour of one of Discord's nameplate palettes on a dark theme.
+fn palette_color(palette: &str) -> Option<u32> {
+    Some(match palette {
+        "crimson" => 0x900007,
+        "berry" => 0x893a99,
+        "sky" => 0x0080b7,
+        "teal" => 0x086460,
+        "forest" => 0x2d5401,
+        "bubble_gum" => 0xdc3e97,
+        "violet" => 0x730bc8,
+        "cobalt" => 0x0131c2,
+        "clover" => 0x047b20,
+        "lemon" => 0xf6cd12,
+        "white" => 0xffffff,
+        "black" => 0x000001,
+        _ => return None,
+    })
 }
 
 pub(super) fn row_looks(tag: Option<&yapfast_core::chat::NameTag>) -> RowLooks {
-    let color = |rgb: Option<&u32>| {
-        rgb.map_or(slint::Color::default(), |&rgb| {
-            slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
-        })
-    };
-    // A style with no colours keeps the name's own colour.
-    let effect = tag
-        .filter(|tag| !tag.colors.is_empty())
-        .map_or(0, |tag| i32::from(tag.effect.max(1)));
     RowLooks {
         font: tag.map_or(0, |tag| i32::from(tag.font)),
-        effect,
-        color_a: color(tag.and_then(|tag| tag.colors.first())),
-        color_b: color(tag.and_then(|tag| tag.colors.get(1).or(tag.colors.first()))),
         decoration: tag
             .and_then(|tag| tag.decoration.as_deref())
             .unwrap_or_default()
@@ -564,5 +716,9 @@ pub(super) fn row_looks(tag: Option<&yapfast_core::chat::NameTag>) -> RowLooks {
             .and_then(|tag| tag.nameplate.as_deref())
             .unwrap_or_default()
             .into(),
+        palette: role_color(
+            tag.and_then(|tag| tag.palette.as_deref())
+                .and_then(palette_color),
+        ),
     }
 }

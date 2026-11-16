@@ -2,6 +2,7 @@
 //! taking in Discord's events until the connection ends, and reconnecting.
 
 use std::{
+    collections::HashMap,
     pin::Pin,
     sync::{Arc, RwLock},
 };
@@ -29,6 +30,10 @@ use crate::{
     settings::Away,
     token,
 };
+
+/// The most people a server is asked for the presences of at once; the
+/// oldest give way, as Discord's client lets those it stopped showing go.
+const MEMBER_SUBSCRIPTIONS: usize = 100;
 
 /// What outlasts a session: the handle's channels and what Yapfast has on screen.
 pub(super) struct Shared {
@@ -246,6 +251,7 @@ async fn connected_session(
         streams: StreamOpenings::new(),
         searches: MemberSearches::default(),
         previews: mpsc::unbounded_channel(),
+        members: HashMap::new(),
     };
     if let Err(error) = session.connect().await {
         return Ended::Failed(error);
@@ -293,6 +299,9 @@ struct Session<'a> {
     away_changes: Pin<Box<Sleep>>,
     /// Discord's answers when asked for message requests' latest messages.
     previews: (mpsc::UnboundedSender<Value>, mpsc::UnboundedReceiver<Value>),
+    /// The people each server sends presences of, newest last, as the
+    /// subscription lists them; a new session starts without.
+    members: HashMap<String, Vec<String>>,
 }
 
 impl Session<'_> {
@@ -374,6 +383,18 @@ impl Session<'_> {
     async fn request(&mut self, request: Request) -> Result<()> {
         let gateway = &mut self.gateway;
         match request {
+            Request::SubscribeMember { guild, user } => {
+                let members = self.members.entry(guild.clone()).or_default();
+                if members.contains(&user) {
+                    return Ok(());
+                }
+                members.push(user);
+                // The oldest go past a bound, as Discord's client keeps few.
+                if members.len() > MEMBER_SUBSCRIPTIONS {
+                    members.remove(0);
+                }
+                gateway.subscribe_members(&guild, members).await
+            }
             Request::Join {
                 guild,
                 channel,
@@ -531,7 +552,11 @@ impl Session<'_> {
                 // Discord answers at most 100 users per request; a reply
                 // waits for the first hundred.
                 let mut chunks = users.chunks(100);
-                if let (Some(reply), Some(users)) = (reply, chunks.next()) {
+                // Only a reply takes the first hundred apart; without one
+                // they go out with the rest.
+                if let Some(reply) = reply
+                    && let Some(users) = chunks.next()
+                {
                     self.searches.members(gateway, &guild, users, reply).await?;
                 }
                 for users in chunks {

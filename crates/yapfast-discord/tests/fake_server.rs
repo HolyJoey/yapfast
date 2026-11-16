@@ -2004,9 +2004,9 @@ async fn lists_dms_and_notifies() {
     assert_eq!(
         listed,
         [
-            ("Alice", "Members — 3", Presence::Online),
-            ("Bob", "Members — 3", Presence::DoNotDisturb),
-            ("Carol", "Members — 3", Presence::Idle)
+            ("Alice", "Members—3", Presence::Online),
+            ("Bob", "Members—3", Presence::DoNotDisturb),
+            ("Carol", "Members—3", Presence::Idle)
         ]
     );
 

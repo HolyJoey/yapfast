@@ -30,6 +30,12 @@ pub struct ListedMember {
     pub presence: Presence,
     /// The RGB colour of their highest coloured role.
     pub color: Option<u32>,
+    /// What their roles add to their name beside the colour.
+    pub look: Option<crate::ready::RoleLook>,
+    /// The icon of the role they're listed under, when it has one.
+    pub group_icon: Option<Arc<str>>,
+    /// Boosting the server, which Discord's list marks with a gem.
+    pub booster: bool,
     /// Their custom status, else what they're doing, as Discord shows it.
     pub activity: Option<String>,
     /// What they're doing, in full, as their profile shows it.
@@ -43,6 +49,8 @@ pub struct ListedMember {
     pub tag: Option<message::Tag>,
     /// A bot or app, which Discord's list marks APP.
     pub bot: bool,
+    /// Owns the server or group DM, whose list crowns them.
+    pub owner: bool,
 }
 
 /// Whether someone is around, as their status dot shows.
@@ -92,6 +100,9 @@ struct Person {
     /// says enough until Discord sends the presence again.
     #[serde(skip)]
     activities: Activities,
+    /// Boosting the server, marked with Discord's gem in the list.
+    #[serde(default)]
+    booster: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -294,9 +305,15 @@ impl MemberList {
     pub fn members(&self, server: Option<&Server>, names: &Names) -> Vec<ListedMember> {
         let mut members = Vec::new();
         let mut group: Option<(&str, String)> = None;
+        let mut group_icon: Option<Arc<str>> = None;
         for row in &self.rows {
             match row {
-                Row::Group(id) => group = Some((id, self.heading(id, server))),
+                Row::Group(id) => {
+                    group_icon = server
+                        .and_then(|server| server.role_looks.get(id))
+                        .and_then(|look| look.icon.clone());
+                    group = Some((id, self.heading(id, server)));
+                }
                 Row::Member(user) => {
                     let mut person = self.people.get(user).cloned().unwrap_or_default();
                     // GUILD_MEMBER_UPDATE changes them in Names, without
@@ -318,12 +335,19 @@ impl MemberList {
                             .unwrap_or_default(),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),
+                        look: server.and_then(|server| server.look(&person.roles)),
+                        group_icon: group_icon.clone(),
+                        booster: person.booster,
                         activity: person.activity,
                         activities: person.activities,
                         roles: person.roles,
                         timed_out_until: names.timed_out_until(&self.guild, user),
                         tag: names.server_tag(user).cloned(),
                         bot: names.is_bot(user),
+                        // The server's owner, whom Discord's list crowns.
+                        owner: server.is_some_and(|server| {
+                            server.owner_id.as_deref() == Some(user.as_str())
+                        }),
                     });
                 }
                 Row::Unknown => {}
@@ -366,6 +390,7 @@ fn row(guild: &str, item: &Value, names: &mut Names, people: &mut HashMap<String
             presence: Presence::parse(presence),
             activity: activity(&presence["activities"]),
             activities: activities(&presence["activities"]),
+            booster: member["premium_since"].is_string(),
         },
     );
     Row::Member(user.to_owned())

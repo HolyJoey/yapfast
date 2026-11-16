@@ -12,6 +12,11 @@ pub const OWN: &str = "Atkinson Hyperlegible Next";
 /// The family to draw: gg sans when it's downloaded, which this registers with
 /// Slint. Call after selecting the Slint backend, before the window draws.
 pub fn family(root: &Path) -> &'static str {
+    // The name styles' fonts that are there, each on its own.
+    #[cfg(feature = "discord")]
+    for file in yapfast_core::yapfast_discord::ui_font::name_files(root) {
+        register(std::slice::from_ref(&file));
+    }
     #[cfg(feature = "discord")]
     if let Some(files) = yapfast_core::yapfast_discord::ui_font::files(root)
         && register(&files)
@@ -31,18 +36,23 @@ pub fn fetch(
     window: slint::Weak<yapfast_ui::YapfastWindow>,
 ) -> Option<yapfast_core::runtime::BackgroundTask<()>> {
     use yapfast_core::yapfast_discord::ui_font;
-    if ui_font::files(root).is_some() {
+    if ui_font::complete(root) {
         return None;
     }
+    let had_family = ui_font::files(root).is_some();
     let root = root.to_owned();
     Some(runtime.spawn(async move {
         if let Err(error) = ui_font::download(&root).await {
             tracing::info!(%error, "gg sans isn't downloaded; drawing Yapfast's own typeface");
             return;
         }
-        tracing::info!("downloaded gg sans");
+        tracing::info!("downloaded gg sans and the name styles' fonts");
         let _ = slint::invoke_from_event_loop(move || {
-            if let Some(files) = ui_font::files(&root)
+            for file in ui_font::name_files(&root) {
+                register(std::slice::from_ref(&file));
+            }
+            if !had_family
+                && let Some(files) = ui_font::files(&root)
                 && register(&files)
                 && let Some(window) = window.upgrade()
             {

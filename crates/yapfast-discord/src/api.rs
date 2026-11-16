@@ -83,6 +83,8 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 const FORWARD: u64 = 1;
 /// The most messages one history request returns.
 pub const PAGE: usize = 50;
+/// How many mentions the Inbox asks for at a time, as Discord's client does.
+pub const MENTIONS_PAGE: usize = 25;
 
 /// How many archived threads a page of a channel's list of threads holds,
 /// as Discord's client asks for them.
@@ -680,6 +682,16 @@ impl Api {
         self.empty(self.request(Method::DELETE, &path)).await
     }
 
+    /// Keeps only these of a message's attachments, by id: the others go,
+    /// as Discord's client removes one from a message.
+    pub async fn keep_attachments(&self, channel: &str, message: &str, ids: &[String]) -> Result<Value> {
+        let path = format!("/channels/{channel}/messages/{message}");
+        let kept: Vec<Value> = ids.iter().map(|id| json!({"id": id})).collect();
+        let body = json!({"attachments": kept});
+        self.json(with_json(self.request(Method::PATCH, &path), &body))
+            .await
+    }
+
     pub async fn edit(&self, channel: &str, message: &str, content: &str) -> Result<Value> {
         let path = format!("/channels/{channel}/messages/{message}");
         let body = json!({"content": content});
@@ -714,6 +726,27 @@ impl Api {
         // Days since Discord's epoch.
         let days = (crate::message::snowflake_at(now) >> 22) / 86_400_000;
         let body = json!({"token": null, "last_viewed": days});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map(drop)
+    }
+
+    /// Sends a sticker as a message of its own, as Discord's sticker picker
+    /// does.
+    pub async fn send_sticker(&self, channel: &str, sticker: &str, nonce: &str) -> Result<Value> {
+        let path = format!("/channels/{channel}/messages");
+        let mut body = message_body("", nonce);
+        body["sticker_ids"] = json!([sticker]);
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Marks a channel read only up to `message`, leaving what follows
+    /// unread, as Discord's Mark Unread does: a manual ack, which keeps the
+    /// channel unread on every client until it's read again.
+    pub async fn ack_manual(&self, channel: &str, message: &str) -> Result<()> {
+        let path = format!("/channels/{channel}/messages/{message}/ack");
+        let body = json!({"manual": true, "mention_count": 0});
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
             .map(drop)
@@ -868,6 +901,28 @@ impl Api {
         let path = format!("/channels/{channel}/messages/pins/{message}");
         let method = if pinned { Method::PUT } else { Method::DELETE };
         self.empty(self.request(method, &path)).await
+    }
+
+    /// Takes a message out of the Inbox's mentions, as its ✓ does.
+    pub async fn dismiss_mention(&self, message: &str) -> Result<()> {
+        let path = format!("/users/@me/mentions/{message}");
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// The messages that mention this account, the newest first, as
+    /// Discord's Inbox lists them: up to [`MENTIONS_PAGE`], older than
+    /// `before`, with role mentions and @everyone.
+    pub async fn mentions(&self, before: Option<&str>) -> Result<Vec<Value>> {
+        let mut path =
+            format!("/users/@me/mentions?limit={MENTIONS_PAGE}&roles=true&everyone=true");
+        if let Some(before) = before.filter(|id| id.bytes().all(|byte| byte.is_ascii_digit())) {
+            path.push_str("&before=");
+            path.push_str(before);
+        }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
     }
 
     /// A channel's pinned messages, the latest pinned first: up to [`PAGE`].
@@ -1953,6 +2008,14 @@ impl Api {
         let body = json!({"thumbnail": thumbnail});
         self.empty(with_json(self.request(Method::POST, &path), &body))
             .await
+    }
+
+    /// The address of the newest preview of someone's live stream, as
+    /// Discord's client shows it on hovering them; none before the first.
+    pub async fn stream_preview_url(&self, stream_key: &str) -> Result<Option<String>> {
+        let path = format!("/streams/{stream_key}/preview");
+        let value = self.json(self.request(Method::GET, &path)).await?;
+        Ok(value["url"].as_str().map(str::to_owned))
     }
 
     /// Discord's own soundboard sounds, which every account may play.

@@ -57,7 +57,8 @@ component ScrollBar inherits Rectangle {
     callback scrolled();
 
     property <length> offset: 16px;
-    property <length> size: 2px;
+    // Discord's thin scrollbar: a 4px thumb, wider while pointed at.
+    property <length> size: 4px;
     property <length> track-size: root.horizontal ? root.width - 2 * root.offset : root.height - 2 * offset;
     property <length> step-size: 10px;
     property <length> thumb-length: root.maximum <= 0phx ? 0phx
@@ -74,7 +75,7 @@ component ScrollBar inherits Rectangle {
     states [
         hover when touch-area.has-hover || down-scroll-button.has-hover || up-scroll-button.has-hover : {
             root.background: Theme.dark ? #2C2C2C : #f0f0f0;
-            root.size: 6px;
+            root.size: 8px;
             up-scroll-button.opacity: 1;
             down-scroll-button.opacity: 1;
         }
@@ -92,7 +93,7 @@ component ScrollBar inherits Rectangle {
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
         border-radius: (root.horizontal ? self.height : self.width) / 2;
-        background: Theme.dark ? #FFFFFF14 : #00000073;
+        background: Theme.dark ? #FFFFFF26 : #00000073;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }

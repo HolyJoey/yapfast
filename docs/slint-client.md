@@ -39,7 +39,7 @@ rows, and shutdown cancels event reception before releasing the backend actor.
 
 ## Renderers and native builds
 
-Skia Software is the default. Settings → Advanced → Render with the GPU switches
+Skia Software is the default. Settings → System → Enable Hardware Acceleration switches
 to Skia GPU, saved as `gpu_rendering` in `layout.json`. Slint selects its
 platform and renderer once per process, and glutin keeps the EGL library loaded
 until the process ends, so the setting applies on the next start; the section

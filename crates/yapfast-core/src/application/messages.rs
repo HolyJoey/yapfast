@@ -66,6 +66,70 @@ impl Application {
         vec![]
     }
 
+    /// Sends a sticker to the open Discord conversation, where this account
+    /// may write.
+    pub(super) fn send_sticker(&mut self, sticker: String) -> Vec<Effect> {
+        let Some(room) = self.state.selected.clone() else {
+            return vec![];
+        };
+        if crate::discord::parse_room(&room).is_none() || !self.state.can_write_in(&room) {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::SendSticker { room, sticker }))]
+    }
+
+    /// Leaves the open Discord channel unread from `item` on: Discord reads
+    /// it up to the message before, or the snowflake just before it.
+    pub(super) fn mark_unread(&mut self, item: String) -> Vec<Effect> {
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        let Some(id) = item.strip_prefix("d:").and_then(|id| id.parse::<u64>().ok()) else {
+            return vec![];
+        };
+        if crate::discord::parse_room(&room).is_none() {
+            return vec![];
+        }
+        let before = self
+            .state
+            .messages
+            .iter()
+            .take_while(|message| message.item != item)
+            .filter_map(|message| message.item.strip_prefix("d:")?.parse::<u64>().ok())
+            .last()
+            .unwrap_or(id - 1);
+        self.marked_unread = Some(room.clone());
+        vec![Effect::Backend(Command::Discord(DiscordCommand::MarkUnread {
+            room,
+            after: before.to_string(),
+        }))]
+    }
+
+    pub(super) fn remove_attachment(&mut self, item: String, index: usize) -> Vec<Effect> {
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        let Some(message) = self.state.message(&item).filter(|message| message.can_delete && message.own) else {
+            return vec![];
+        };
+        let keep: Vec<String> = message
+            .attachments
+            .iter()
+            .enumerate()
+            .filter(|(at, _)| *at != index)
+            .filter_map(|(_, attachment)| attachment.url.as_deref().map(str::to_owned))
+            .collect();
+        // Without text or another attachment, there would be nothing left:
+        // Discord asks to delete the message instead.
+        if message.body.trim().is_empty() && keep.is_empty() {
+            return self.request_delete(item);
+        }
+        if keep.len() + 1 != message.attachments.len() {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::KeepAttachments { room, item, keep })]
+    }
+
     pub(super) fn pin_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
@@ -564,6 +628,10 @@ impl Application {
         // A voice channel's message shows in its chat.
         if self.state.selected.as_ref() != Some(&room) || !self.state.shows_text() {
             effects = self.open(room.clone(), true);
+            // The message asked for loads its own window. The one around the
+            // last read message, which opening an unread channel asks for,
+            // would answer first and end the jump before its window came.
+            effects.retain(|effect| !matches!(effect, Effect::Backend(Command::Around { .. })));
         }
         if self.state.selected.as_ref() == Some(&room) {
             effects.extend(self.jump(item, false));

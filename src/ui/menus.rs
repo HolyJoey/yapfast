@@ -105,13 +105,21 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::Timeout => (format!("Time out {}", name()), &icons.timeout),
                 MenuChoice::Kick => (format!("Kick {}", name()), &icons.kick),
                 MenuChoice::Ban => (format!("Ban {}", name()), &icons.ban),
-                MenuChoice::Invite if server => ("Invite to server".into(), &icons.befriend),
-                MenuChoice::CreateChannel if server => ("Create channel".into(), &icons.create),
-                MenuChoice::CreateChannel if voice => {
-                    ("Create voice channel".into(), &icons.create)
+                MenuChoice::Invite if server => ("Invite to Server".into(), &icons.befriend),
+                // Discord says whose id it copies.
+                MenuChoice::CopyId if server => ("Copy Server ID".into(), &icons.id_badge),
+                MenuChoice::CopyId if person || in_voice.is_some() => {
+                    ("Copy User ID".into(), &icons.id_badge)
                 }
-                MenuChoice::EditChannel if category => ("Edit category".into(), &icons.edit),
-                MenuChoice::DeleteChannel if category => ("Delete category".into(), &icons.delete),
+                MenuChoice::CopyId if room.is_some() || category => {
+                    ("Copy Channel ID".into(), &icons.id_badge)
+                }
+                MenuChoice::CreateChannel if server => ("Create Channel".into(), &icons.create),
+                MenuChoice::CreateChannel if voice => {
+                    ("Create Voice Channel".into(), &icons.create)
+                }
+                MenuChoice::EditChannel if category => ("Edit Category".into(), &icons.edit),
+                MenuChoice::DeleteChannel if category => ("Delete Category".into(), &icons.delete),
                 // Discord's own words in a friend's ⋮ menu.
                 MenuChoice::Call if friend_more.is_some() => {
                     ("Start Voice Call".into(), &icons.call)
@@ -158,6 +166,8 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
                 MenuChoice::Roles | MenuChoice::MoveTo => 4,
+                // Its own group, after the note, as in Discord's.
+                MenuChoice::PlayOnSpotify => 10,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
                 | MenuChoice::SelfMute
@@ -193,6 +203,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                         level_name(own.level.unwrap_or(own.inherited)).to_owned()
                     })
                     .unwrap_or_default(),
+                MenuChoice::AddNote => "Only visible to you".to_owned(),
                 _ => String::new(),
             };
             let checkbox = matches!(
@@ -225,7 +236,13 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 id: choice_id(choice).into(),
                 text: text.into(),
                 subtitle: subtitle.into(),
-                icon: icon.clone(),
+                // Discord's menus go without icons, but for the ID badge
+                // before copying one.
+                icon: if choice == MenuChoice::CopyId {
+                    icon.clone()
+                } else {
+                    slint::Image::default()
+                },
                 danger: matches!(
                     choice,
                     MenuChoice::Unfriend
@@ -283,76 +300,77 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
 /// What a menu row says for a choice, and its icon.
 fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &slint::Image) {
     match choice {
-        MenuChoice::MarkRead => ("Mark as read", &icons.read),
-        MenuChoice::JoinVoice => ("Join voice", &icons.call),
-        MenuChoice::OpenChat => ("Open chat", &icons.chat),
+        MenuChoice::MarkRead => ("Mark as Read", &icons.read),
+        MenuChoice::JoinVoice => ("Join Voice", &icons.call),
+        MenuChoice::OpenChat => ("Open Chat", &icons.chat),
         MenuChoice::Profile => ("Profile", &icons.profile),
         MenuChoice::Message => ("Message", &icons.dm),
-        MenuChoice::AddFriend => ("Add friend", &icons.befriend),
-        MenuChoice::AcceptFriend => ("Accept friend request", &icons.befriend),
-        MenuChoice::CancelFriendRequest => ("Cancel friend request", &icons.cancel),
+        MenuChoice::AddFriend => ("Add Friend", &icons.befriend),
+        MenuChoice::AcceptFriend => ("Accept Friend Request", &icons.befriend),
+        MenuChoice::CancelFriendRequest => ("Cancel Friend Request", &icons.cancel),
         MenuChoice::Pin => ("Pin", &icons.pin),
         MenuChoice::Unpin => ("Unpin", &icons.unpin),
-        MenuChoice::Call if in_call => ("Join call", &icons.call),
-        MenuChoice::Call => ("Start call", &icons.call),
+        MenuChoice::Call if in_call => ("Join Call", &icons.call),
+        MenuChoice::Call => ("Start a Call", &icons.call),
         MenuChoice::VideoCall => ("Start Video Call", &icons.video),
-        MenuChoice::AddNote => ("Add note", &icons.note),
-        MenuChoice::AddNickname => ("Add friend nickname", &icons.nickname),
-        MenuChoice::EditNickname => ("Change friend nickname", &icons.nickname),
+        MenuChoice::AddNote => ("Add Note", &icons.note),
+        MenuChoice::PlayOnSpotify => ("Play on Spotify", &icons.note),
+        MenuChoice::AddNickname => ("Add Friend Nickname", &icons.nickname),
+        MenuChoice::EditNickname => ("Change Friend Nickname", &icons.nickname),
         MenuChoice::CloseDm => ("Close DM", &icons.cancel),
-        MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
-        MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
-        MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
+        MenuChoice::LeaveGroup => ("Leave Group", &icons.leave),
+        MenuChoice::InviteToServer => ("Invite to Server", &icons.befriend),
+        MenuChoice::Unfriend => ("Remove Friend", &icons.unfriend),
         MenuChoice::Ignore => ("Ignore", &icons.ignore),
-        MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
+        MenuChoice::Unignore => ("Unignore", &icons.ignore),
         MenuChoice::Block => ("Block", &icons.block),
         MenuChoice::Unblock => ("Unblock", &icons.block),
         MenuChoice::Mute => ("Mute", &icons.mute),
         MenuChoice::Unmute => ("Unmute", &icons.unmute),
-        MenuChoice::CopyLink => ("Copy link", &icons.copy),
-        MenuChoice::CopyId => ("Copy ID", &icons.text),
+        MenuChoice::CopyLink => ("Copy Link", &icons.copy),
+        MenuChoice::CopyId => ("Copy ID", &icons.id_badge),
         MenuChoice::Mention => ("Mention", &icons.mention),
-        MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
+        MenuChoice::ServerNickname => ("Change Nickname", &icons.rename),
         MenuChoice::Roles => ("Roles", &icons.roles),
-        MenuChoice::RemoveTimeout => ("Remove timeout", &icons.timeout),
-        MenuChoice::Timeout => ("Time out", &icons.timeout),
+        MenuChoice::RemoveTimeout => ("Remove Timeout", &icons.timeout),
+        MenuChoice::Timeout => ("Time Out", &icons.timeout),
         MenuChoice::Kick => ("Kick", &icons.kick),
         MenuChoice::Ban => ("Ban", &icons.ban),
         MenuChoice::TransferOwnership => ("Transfer Ownership", &icons.crown),
         MenuChoice::LocalMute | MenuChoice::SelfMute => ("Mute", &icons.mic_off),
         MenuChoice::SoundboardMute => ("Mute Soundboard", &icons.soundboard),
         MenuChoice::SelfDeafen => ("Deafen", &icons.deafen),
-        MenuChoice::MoveTo => ("Move to", &icons.move_to),
-        MenuChoice::ServerMute => ("Server mute", &icons.mic_off),
-        MenuChoice::ServerDeafen => ("Server deafen", &icons.deafen),
+        MenuChoice::MoveTo => ("Move To", &icons.move_to),
+        MenuChoice::ServerMute => ("Server Mute", &icons.mic_off),
+        MenuChoice::ServerDeafen => ("Server Deafen", &icons.deafen),
         MenuChoice::Disconnect => ("Disconnect", &icons.disconnect),
         // Notify::dress names these.
         MenuChoice::ChannelMute => ("Mute", &icons.mute),
-        MenuChoice::ChannelNotifications => ("Notification settings", &icons.unmute),
-        MenuChoice::MuteServer => ("Mute server", &icons.mute),
-        MenuChoice::UnmuteServer => ("Unmute server", &icons.unmute),
-        MenuChoice::ServerNotifications => ("Notification settings", &icons.unmute),
-        MenuChoice::ShowAllChannels => ("Show all channels", &icons.show),
-        MenuChoice::HideMuted => ("Hide muted channels", &icons.ignore),
+        MenuChoice::ChannelNotifications => ("Notification Settings", &icons.unmute),
+        MenuChoice::MuteServer => ("Mute Server", &icons.mute),
+        MenuChoice::UnmuteServer => ("Unmute Server", &icons.unmute),
+        MenuChoice::ServerNotifications => ("Notification Settings", &icons.unmute),
+        MenuChoice::ShowAllChannels => ("Show All Channels", &icons.show),
+        MenuChoice::HideMuted => ("Hide Muted Channels", &icons.ignore),
         // A server's says so above.
-        MenuChoice::Invite => ("Invite to channel", &icons.befriend),
-        MenuChoice::PinChannel => ("Pin channel to top", &icons.pin),
-        MenuChoice::UnpinChannel => ("Unpin channel", &icons.unpin),
-        MenuChoice::AddToChannelList => ("Add to channel list", &icons.show),
-        MenuChoice::RemoveFromChannelList => ("Remove from channel list", &icons.ignore),
-        MenuChoice::UnfollowCategory => ("Unfollow channel category", &icons.ignore),
+        MenuChoice::Invite => ("Invite to Channel", &icons.befriend),
+        MenuChoice::PinChannel => ("Pin Channel to Top", &icons.pin),
+        MenuChoice::UnpinChannel => ("Unpin Channel", &icons.unpin),
+        MenuChoice::AddToChannelList => ("Add to Channel List", &icons.show),
+        MenuChoice::RemoveFromChannelList => ("Remove from Channel List", &icons.ignore),
+        MenuChoice::UnfollowCategory => ("Unfollow Channel Category", &icons.ignore),
         // A server's and a voice channel's say so above.
-        MenuChoice::CreateChannel => ("Create text channel", &icons.create),
-        MenuChoice::CreateCategory => ("Create category", &icons.create_category),
+        MenuChoice::CreateChannel => ("Create Text Channel", &icons.create),
+        MenuChoice::CreateCategory => ("Create Category", &icons.create_category),
         // A category's say so above.
-        MenuChoice::EditChannel => ("Edit channel", &icons.edit),
-        MenuChoice::DuplicateChannel => ("Duplicate channel", &icons.duplicate),
-        MenuChoice::DeleteChannel => ("Delete channel", &icons.delete),
-        MenuChoice::LeaveServer => ("Leave server", &icons.leave),
-        MenuChoice::JoinThread => ("Join thread", &icons.thread),
-        MenuChoice::LeaveThread => ("Leave thread", &icons.leave),
-        MenuChoice::EditServerProfile => ("Edit server profile", &icons.rename),
-        MenuChoice::ServerSettings => ("Server settings", &icons.settings),
+        MenuChoice::EditChannel => ("Edit Channel", &icons.edit),
+        MenuChoice::DuplicateChannel => ("Duplicate Channel", &icons.duplicate),
+        MenuChoice::DeleteChannel => ("Delete Channel", &icons.delete),
+        MenuChoice::LeaveServer => ("Leave Server", &icons.leave),
+        MenuChoice::JoinThread => ("Join Thread", &icons.thread),
+        MenuChoice::LeaveThread => ("Leave Thread", &icons.leave),
+        MenuChoice::EditServerProfile => ("Edit Per-server Profile", &icons.rename),
+        MenuChoice::ServerSettings => ("Server Settings", &icons.settings),
     }
 }
 
@@ -363,9 +381,22 @@ fn role_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
     let Some(place) = adapter.app.state.selected.as_deref() else {
         return vec![];
     };
-    adapter
-        .app
-        .role_choices(place, user)
+    let choices = adapter.app.role_choices(place, user);
+    // Without a role to give, Discord's lists only the member's own, each
+    // with its colour's dot, to look at.
+    if !choices.iter().any(|choice| choice.grantable) {
+        return choices
+            .into_iter()
+            .filter(|choice| choice.held)
+            .map(|choice| MenuRow {
+                id: ROLE_SHOWN.into(),
+                text: choice.role.name.into(),
+                dot: role_dot(choice.role.color),
+                ..Default::default()
+            })
+            .collect();
+    }
+    choices
         .into_iter()
         .map(|choice| MenuRow {
             id: format!("{ROLE}{}", choice.role.id).into(),
@@ -373,6 +404,7 @@ fn role_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
             checkbox: true,
             checked: choice.held,
             disabled: !choice.grantable,
+            dot: role_dot(choice.role.color),
             ..Default::default()
         })
         .collect()
@@ -380,6 +412,16 @@ fn role_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
 
 /// What a role's row in the roles submenu reports, before the role's id.
 const ROLE: &str = "role:";
+
+/// What a role's row reports where it's only shown: nothing to do.
+const ROLE_SHOWN: &str = "role-shown";
+
+/// A role's dot: its colour, or Discord's grey for a role without one.
+fn role_dot(color: Option<u32>) -> slint::Color {
+    let rgb = color.filter(|rgb| *rgb != 0).unwrap_or(0x99aab5);
+    let [_, red, green, blue] = rgb.to_be_bytes();
+    slint::Color::from_rgb_u8(red, green, blue)
+}
 
 /// Someone's Invite to server submenu, built as it opens: the servers they
 /// may be invited to, by name, in the rail's order. A DM's is its person's.
@@ -460,7 +502,7 @@ impl Notify {
     }
 
     fn kind(&self) -> &'static str {
-        if self.category { "category" } else { "channel" }
+        if self.category { "Category" } else { "Channel" }
     }
 
     /// The bell's menu: muting, then the levels.
@@ -477,7 +519,6 @@ impl Notify {
 
     /// Mute for a time, in a submenu, or while muted, unmute, saying till when.
     fn mute_row(&self, adapter: &Adapter) -> MenuRow {
-        let icons = &adapter.icons;
         let muted = self.settings.muted;
         MenuRow {
             id: choice_id(MenuChoice::ChannelMute).into(),
@@ -488,11 +529,6 @@ impl Notify {
                 .map(|until| muted_until(until / 1000, adapter.layout.twelve_hour_clock))
                 .unwrap_or_default()
                 .into(),
-            icon: if muted {
-                icons.unmute.clone()
-            } else {
-                icons.mute.clone()
-            },
             ..Default::default()
         }
     }
@@ -697,6 +733,10 @@ pub(super) fn choose(
     person: bool,
     id: &str,
 ) {
+    // A role only shown, for someone who may not give it, does nothing.
+    if id == ROLE_SHOWN {
+        return;
+    }
     // A checkbox shows its new state at once, as the menu stays open.
     let ticked = toggle(window, id);
     // Someone's menu in a voice channel acts on them in its server.
@@ -826,9 +866,10 @@ pub(super) fn choose(
         MenuChoice::Call if person => Some(Action::CallPerson(target.clone())),
         MenuChoice::VideoCall => Some(Action::VideoCallPerson(target.clone())),
         MenuChoice::Call => room.map(Action::RequestJoinVoice),
+        // As Discord's menu: the full profile, not the card.
         MenuChoice::Profile if person => Some(Action::ShowProfile {
             user: target,
-            large: false,
+            large: true,
         }),
         MenuChoice::Profile => Some(Action::ShowDmProfile(target)),
         MenuChoice::Message => Some(Action::MessagePerson(target)),
@@ -839,6 +880,13 @@ pub(super) fn choose(
             pinned: choice == MenuChoice::Pin,
         }),
         MenuChoice::AddNote => ask(PersonAsk::Note),
+        // It opens a page, and changes nothing here.
+        MenuChoice::PlayOnSpotify => {
+            if let Some(link) = adapter.app.spotify_link(&target) {
+                super::browser::open(&link);
+            }
+            None
+        }
         MenuChoice::AddNickname | MenuChoice::EditNickname => ask(PersonAsk::Nickname),
         MenuChoice::CloseDm => room.map(Action::CloseDm),
         MenuChoice::LeaveGroup => room.map(Action::AskLeaveGroup),
@@ -1019,7 +1067,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 66] = [
+const CHOICES: [MenuChoice; 67] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1032,6 +1080,7 @@ const CHOICES: [MenuChoice; 66] = [
     MenuChoice::Unpin,
     MenuChoice::Call,
     MenuChoice::VideoCall,
+    MenuChoice::PlayOnSpotify,
     MenuChoice::AddNote,
     MenuChoice::AddNickname,
     MenuChoice::EditNickname,
@@ -1103,6 +1152,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::Call => "call",
         MenuChoice::VideoCall => "video-call",
         MenuChoice::AddNote => "add-note",
+        MenuChoice::PlayOnSpotify => "play-on-spotify",
         MenuChoice::AddNickname => "add-nickname",
         MenuChoice::EditNickname => "edit-nickname",
         MenuChoice::CloseDm => "close-dm",

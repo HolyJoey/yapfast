@@ -555,7 +555,7 @@ fn push_to_talk_keeps_its_mode_key_and_release_delay() {
 fn each_sounds_own_volume_counts_only_while_adjusting_each() {
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();
-    assert_eq!(defaults.sound_set, SoundSet::NewKalimba);
+    assert_eq!(defaults.sound_set, SoundSet::Discord);
     assert_eq!(defaults.sound_gain(Sound::Join), 1.0);
     let mut layout = Layout {
         sound_set: SoundSet::Rhodes,
@@ -570,7 +570,7 @@ fn each_sounds_own_volume_counts_only_while_adjusting_each() {
 
     let window = YapfastWindow::new().unwrap();
     layout.apply(&window);
-    assert_eq!(window.get_sound_set(), 3);
+    assert_eq!(window.get_sound_set(), 4);
     assert_eq!(window.get_sound_volume(), 50);
     assert!(window.get_adjust_each_sound());
     let each: Vec<i32> = window.get_each_sound().iter().collect();
@@ -754,7 +754,7 @@ fn sound_settings_are_remembered() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    window.set_sound_set(4);
+    window.set_sound_set(5);
     window.set_sound_volume(40);
     window.set_adjust_each_sound(true);
     window.invoke_preferences_changed();
@@ -1232,10 +1232,10 @@ fn pointer_input_reaches_navigation_buttons() {
             .window()
             .dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
     };
-    click(32., 68.);
+    click(36., 54.);
     assert!(window.get_dms_selected());
     assert_eq!(window.get_sidebar_title(), "Direct messages");
-    click(32., 133.);
+    click(36., 102.);
     assert!(!window.get_dms_selected());
     assert_eq!(window.get_sidebar_title(), "Friends");
     window.hide().unwrap();
@@ -1264,7 +1264,7 @@ fn menus_list_their_choices_and_carry_them_out() {
     window.invoke_prepare_menu("sam".into(), false);
     assert_eq!(texts(&window), ["Profile"]);
     window.invoke_prepare_menu("lounge".into(), false);
-    assert_eq!(texts(&window), ["Join voice"]);
+    assert_eq!(texts(&window), ["Join Voice"]);
     window.invoke_prepare_menu("gone".into(), false);
     assert!(texts(&window).is_empty());
 
@@ -1328,18 +1328,18 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Profile",
             "Mention",
             "Message",
-            "Start call",
-            "Add note",
-            "Add friend nickname",
-            "Change nickname",
-            "Remove friend",
+            "Start a Call",
+            "Add Note",
+            "Add Friend Nickname",
+            "Change Nickname",
+            "Remove Friend",
             "Ignore",
             "Block",
             "Roles",
             "Time out Dave",
             "Kick Dave",
             "Ban Dave",
-            "Copy ID",
+            "Copy User ID",
         ]
     );
     let marked = |pick: fn(&MenuRow) -> bool| -> Vec<&str> {
@@ -1350,12 +1350,12 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     };
     assert_eq!(
         marked(|row| row.separated),
-        ["Change nickname", "Roles", "Time out Dave", "Copy ID"]
+        ["Change Nickname", "Roles", "Time out Dave", "Copy User ID"]
     );
     assert_eq!(
         marked(|row| row.danger),
         [
-            "Remove friend",
+            "Remove Friend",
             "Block",
             "Time out Dave",
             "Kick Dave",
@@ -1479,10 +1479,10 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
     let rows: Vec<MenuRow> = window.get_menu_rows().iter().collect();
     let at = rows
         .iter()
-        .position(|row| row.text == "Invite to server")
+        .position(|row| row.text == "Invite to Server")
         .unwrap();
-    assert_eq!(rows[at - 1].text, "Change nickname");
-    assert_eq!(rows[at + 1].text, "Remove friend");
+    assert_eq!(rows[at - 1].text, "Change Nickname");
+    assert_eq!(rows[at + 1].text, "Remove Friend");
     assert!(
         !rows[at].separated,
         "in the group of how she stands with them"
@@ -3206,8 +3206,9 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     };
     let servers = adapter.borrow().app.state.servers.len();
     let read = rail(&window);
-    assert_eq!(read.len(), servers + 1);
+    assert_eq!(read.len(), servers + 2, "a divider, the servers, the add button");
     assert!(read[0].2, "the divider leads the servers");
+    assert_eq!(read.last().unwrap().0, "yapfast:add-server");
     {
         let mut adapter = adapter.borrow_mut();
         let riley = adapter
@@ -3254,6 +3255,11 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened() {
             folder: folder.cloned(),
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         }
     };
@@ -3382,7 +3388,7 @@ fn a_profile_shows_activities_as_discord_cards() {
     ]));
     let rows: Vec<ActivityRow> = profile::activity_rows(&activities).iter().collect();
     let spotify = &rows[0];
-    assert_eq!(spotify.heading, "LISTENING TO SPOTIFY");
+    assert_eq!(spotify.heading, "Listening to Spotify");
     assert_eq!(
         (
             spotify.name.as_str(),
@@ -3440,11 +3446,16 @@ fn friends_in_a_servers_voice_channel_show_where() {
         presence: None,
         activity: None,
         activities: Default::default(),
+        private: false,
+        thread_owner: None,
         parent: None,
         forum: false,
         announcement: false,
         rules: false,
         faces: Vec::new(),
+        tag: None,
+        user_limit: 0,
+        voice_since: 0,
         unlisted: false,
         preview: None,
     };
@@ -3468,6 +3479,11 @@ fn friends_in_a_servers_voice_channel_show_where() {
         folder: None,
         hide_muted: false,
         community: false,
+        banner: None,
+        boost_tier: 0,
+        badge: Default::default(),
+        boost_bar: None,
+        onboarding: false,
         pinned: Vec::new(),
     })];
     let rooms_by_id = state
@@ -3509,6 +3525,11 @@ fn a_call_shows_on_its_servers_icon_and_its_closed_folder() {
             folder: folder.cloned(),
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         }
     };
@@ -3729,7 +3750,7 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
     assert_eq!(
         rows(&window),
         [
-            row("Mute channel", "", false),
+            row("Mute Channel", "", false),
             row("Use category default", "Only @mentions", true),
             row("All messages", "", false),
             row("Only @mentions", "", false),
@@ -3746,7 +3767,7 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
     // A muted channel outside a category unmutes, and follows the server.
     window.invoke_prepare_menu("notifications:discord:10:12".into(), false);
     let shown = rows(&window);
-    assert_eq!(shown[0], row("Unmute channel", "", false));
+    assert_eq!(shown[0], row("Unmute Channel", "", false));
     assert_eq!(shown[1], row("Use server default", "Only @mentions", false));
     assert_eq!(shown[4], row("Nothing", "", true));
     assert_eq!(window.get_menu_submenus().row_count(), 0, "no row has one");
@@ -3754,11 +3775,11 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
     // Its own menu has the same, the levels in a submenu.
     window.invoke_prepare_menu("discord:10:12".into(), false);
     let shown = rows(&window);
-    assert!(shown.contains(&row("Unmute channel", "", false)));
-    assert!(shown.contains(&row("Notification settings", "Nothing", false)));
+    assert!(shown.contains(&row("Unmute Channel", "", false)));
+    assert!(shown.contains(&row("Notification Settings", "Nothing", false)));
     let at = shown
         .iter()
-        .position(|shown| shown.0 == "Notification settings")
+        .position(|shown| shown.0 == "Notification Settings")
         .unwrap();
     let levels = window.get_menu_submenus().row_data(at).unwrap();
     assert_eq!(levels.row_count(), 4);
@@ -3772,10 +3793,10 @@ fn the_bell_and_channel_menus_offer_the_same_notification_choices() {
     assert_eq!(window.invoke_category_of("discord:10:12".into()), "");
     window.invoke_prepare_menu("discord:10:4".into(), false);
     let shown = rows(&window);
-    assert_eq!(shown[0], row("Mute category", "", false));
+    assert_eq!(shown[0], row("Mute Category", "", false));
     assert_eq!(
         shown[1],
-        row("Notification settings", "Only @mentions", false)
+        row("Notification Settings", "Only @mentions", false)
     );
 
     // What each choice changes.
@@ -3960,14 +3981,13 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
     assert_eq!(
         texts(rows.clone()),
         [
-            "Mark as read",
-            "Mute server",
-            "Notification settings",
-            "Hide muted channels",
-            "Edit server profile",
-            "Leave server",
-            "Copy link",
-            "Copy ID"
+            "Mark as Read",
+            "Mute Server",
+            "Notification Settings",
+            "Hide Muted Channels",
+            "Edit Per-server Profile",
+            "Leave Server",
+            "Copy Server ID"
         ]
     );
     let notifications = rows.row_data(2).unwrap();
@@ -4002,10 +4022,11 @@ fn a_discord_servers_menus_show_and_change_its_notifications() {
     assert_eq!(
         texts(window.get_menu_rows()),
         [
-            "Notification settings",
-            "Edit server profile",
-            "Hide muted channels",
-            "Leave server"
+            "Notification Settings",
+            "Edit Per-server Profile",
+            "Hide Muted Channels",
+            "Leave Server",
+            "Copy Server ID"
         ]
     );
     assert_eq!(window.get_header_server(), "", "until the server is open");
@@ -4074,10 +4095,10 @@ fn discord_categories_head_their_channels_and_open_their_menus() {
     assert_eq!(
         texts,
         [
-            "Mark as read",
-            "Mute category",
-            "Notification settings",
-            "Copy ID"
+            "Mark as Read",
+            "Mute Category",
+            "Notification Settings",
+            "Copy Channel ID"
         ]
     );
 }
@@ -4170,12 +4191,12 @@ fn pinned_channels_leave_their_categories_for_the_top() {
     assert_eq!(
         texts,
         [
-            "Mark as read",
-            "Unpin channel",
-            "Copy link",
-            "Mute channel",
-            "Notification settings",
-            "Copy ID"
+            "Mark as Read",
+            "Unpin Channel",
+            "Copy Link",
+            "Mute Channel",
+            "Notification Settings",
+            "Copy Channel ID"
         ]
     );
 }
@@ -4218,10 +4239,10 @@ fn a_community_server_lists_the_channels_followed_and_offers_following() {
     let server = texts("discord:10");
     let at = server
         .iter()
-        .position(|(text, _)| text == "Show all channels")
+        .position(|(text, _)| text == "Show All Channels")
         .unwrap();
     assert!(!server[at].1, "unticked");
-    assert_eq!(server[at + 1].0, "Hide muted channels");
+    assert_eq!(server[at - 1].0, "Hide Muted Channels");
     let channel: Vec<String> = texts("discord:10:11")
         .into_iter()
         .map(|(text, _)| text)
@@ -4229,13 +4250,13 @@ fn a_community_server_lists_the_channels_followed_and_offers_following() {
     assert_eq!(
         channel,
         [
-            "Mark as read",
-            "Pin channel to top",
-            "Add to channel list",
-            "Copy link",
-            "Mute channel",
-            "Notification settings",
-            "Copy ID"
+            "Mark as Read",
+            "Pin Channel to Top",
+            "Add to Channel List",
+            "Copy Link",
+            "Mute Channel",
+            "Notification Settings",
+            "Copy Channel ID"
         ]
     );
 }
@@ -4401,15 +4422,15 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
     assert_eq!(
         texts(rows.clone()),
         [
-            "Join voice",
-            "Open chat",
-            "Pin channel to top",
-            "Copy link",
-            "Edit channel",
-            "Duplicate channel",
-            "Create voice channel",
-            "Delete channel",
-            "Copy ID"
+            "Join Voice",
+            "Open Chat",
+            "Pin Channel to Top",
+            "Copy Link",
+            "Edit Channel",
+            "Duplicate Channel",
+            "Create Voice Channel",
+            "Delete Channel",
+            "Copy Channel ID"
         ]
     );
     let delete = rows.row_data(7).unwrap();
@@ -4418,24 +4439,24 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
     assert_eq!(
         texts(window.get_menu_rows())[1..],
         [
-            "Mute category",
-            "Notification settings",
-            "Edit category",
-            "Delete category",
-            "Copy ID"
+            "Mute Category",
+            "Notification Settings",
+            "Edit Category",
+            "Delete Category",
+            "Copy Channel ID"
         ]
     );
     window.invoke_prepare_menu("header:discord:10".into(), false);
     assert_eq!(
         texts(window.get_menu_rows())[..2],
-        ["Create channel", "Create category"]
+        ["Create Channel", "Create Category"]
     );
 
     // Choosing one opens its dialog.
     window.invoke_choose_menu("discord:10".into(), false, "create-channel".into());
     assert!(window.get_channel_open());
     let prompt = window.get_channel_prompt();
-    assert_eq!(prompt.title, "Create channel");
+    assert_eq!(prompt.title, "Create Channel");
     assert_eq!(prompt.detail, "In Test");
     assert!(prompt.kinds && prompt.named && !prompt.danger);
     window.set_channel_name("Plans".into());
@@ -4466,7 +4487,7 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
         error: None,
     });
     let prompt = window.get_channel_prompt();
-    assert_eq!(prompt.title, "Delete category");
+    assert_eq!(prompt.title, "Delete Category");
     assert_eq!(
         prompt.detail,
         "Are you sure you want to delete Talk? This cannot be undone."
@@ -4569,7 +4590,7 @@ fn channel_settings_cover_the_window_with_overview_and_permissions() {
     window.invoke_choose_menu("discord:10:11".into(), false, "edit-channel".into());
     window.invoke_channel_settings_input(10, "".into(), 99);
     assert!(!window.get_channel_settings_open() && window.get_channel_open());
-    assert_eq!(window.get_channel_prompt().title, "Delete channel");
+    assert_eq!(window.get_channel_prompt().title, "Delete Channel");
 }
 
 #[test]
@@ -4580,14 +4601,14 @@ fn leaving_a_server_asks_first_in_red() {
     let leave = window
         .get_menu_rows()
         .iter()
-        .find(|row| row.text == "Leave server")
+        .find(|row| row.text == "Leave Server")
         .unwrap();
     assert!(leave.danger && leave.separated);
     window.invoke_choose_menu("discord:10".into(), false, "leave-server".into());
     assert!(window.get_leave_open());
     let prompt = window.get_leave_prompt();
     assert_eq!(prompt.title, "Leave 'Test'");
-    assert_eq!(prompt.confirm, "Leave server");
+    assert_eq!(prompt.confirm, "Leave Server");
     assert!(prompt.danger && !prompt.named && !prompt.saving);
     window.invoke_confirm_leave();
     assert!(adapter.borrow().app.state.leave.as_ref().unwrap().leaving);
@@ -4618,7 +4639,7 @@ fn leaving_a_group_dm_asks_first_and_offers_to_tell_no_one() {
     let group = "discord:@me:31";
     window.invoke_prepare_menu(group.into(), false);
     let rows = window.get_menu_rows();
-    let leave = rows.iter().find(|row| row.text == "Leave group").unwrap();
+    let leave = rows.iter().find(|row| row.text == "Leave Group").unwrap();
     assert!(leave.danger && leave.separated);
     window.invoke_choose_menu(group.into(), false, "leave-group".into());
     assert!(window.get_leave_open());
@@ -4628,7 +4649,7 @@ fn leaving_a_group_dm_asks_first_and_offers_to_tell_no_one() {
         prompt.detail,
         "Are you sure you want to leave Hikers? You won't be able to rejoin this group unless you are re-invited."
     );
-    assert_eq!(prompt.confirm, "Leave group");
+    assert_eq!(prompt.confirm, "Leave Group");
     assert_eq!(prompt.option, "Leave without notifying other members");
     assert!(prompt.danger && !prompt.ticked);
     window.invoke_toggle_silent_leave();
@@ -4651,7 +4672,7 @@ fn edit_server_profile_opens_the_per_server_profile_editor() {
         .map(|row| row.text.to_string())
         .collect();
     assert!(
-        texts.contains(&"Edit server profile".to_owned()),
+        texts.contains(&"Edit Per-server Profile".to_owned()),
         "{texts:?}"
     );
     window.invoke_choose_menu(
@@ -4681,7 +4702,7 @@ fn edit_server_profile_opens_the_per_server_profile_editor() {
     let prompt = window.get_profile_editor_prompt();
     assert!(!prompt.loading && prompt.name_enabled && !prompt.bio_enabled && !prompt.changed);
     assert!(prompt.offer && !prompt.main && prompt.banner_shown && !prompt.colour_shown);
-    assert_eq!(prompt.title, "Edit server profile");
+    assert_eq!(prompt.title, "Edit Per-server Profile");
     assert_eq!(window.get_profile_editor_pronouns(), "she/her");
     assert_eq!(prompt.name_placeholder, "alice");
     assert_eq!(prompt.preview.name, "Alice", "the main profile's name");
@@ -4724,7 +4745,7 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
     };
     window.invoke_prepare_menu("header:discord:10".into(), false);
     assert!(
-        texts(&window).contains(&"Server settings".to_owned()),
+        texts(&window).contains(&"Server Settings".to_owned()),
         "{:?}",
         texts(&window)
     );
@@ -6120,11 +6141,16 @@ fn requests_list_someone_once_with_their_message() {
         presence: None,
         activity: None,
         activities: Default::default(),
+        private: false,
+        thread_owner: None,
         parent: None,
         forum: false,
         announcement: false,
         rules: false,
         faces: Vec::new(),
+        tag: None,
+        user_limit: 0,
+        voice_since: 0,
         unlisted: false,
         preview: Some(Box::new(RequestPreview {
             text: format!("Hi from {person}"),
@@ -6717,15 +6743,15 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
         });
         settle(&window);
     };
-    // The GIF button in the composer opens the picker, 498px wide, its right
-    // edge on the emoji button's.
-    click(1030., 710.);
+    // The GIF button in the composer, before the sticker one, opens the
+    // picker, 498px wide, its right edge on the emoji button's.
+    click(990., 710.);
     assert_eq!(window.get_gif_picker_shown(), 498.);
     assert_eq!(window.get_gif_grid_width(), 474.);
     // Room for it up to 8px right of the server list, which is 80px from the
     // window's left edge.
     let room = window.get_gif_picker_room();
-    assert_eq!(room, 1016.);
+    assert_eq!(room, 1019.);
     // Where the picker shows on screen: its right edge, which is the emoji
     // button's, must stay there however far its left edge is dragged.
     // The panel inside the popup, which spans all the room it could take:
@@ -6761,8 +6787,8 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
         let (x, width) = panel();
         x + width
     };
-    assert_eq!(panel(), (598., 498.));
-    // Its left edge is the right edge less its width, 1096 - 498 = 598, and
+    assert_eq!(panel(), (601., 498.));
+    // Its left edge is the right edge less its width, 1099 - 498 = 601, and
     // the handle starts there: press 4px into it, then move the pointer, as a
     // mouse reports it, several times. Each move must widen the picker by the
     // distance the pointer travelled: Slint measures the pointer against the
@@ -6795,56 +6821,57 @@ fn dragging_the_gif_pickers_left_edge_widens_it_no_further_than_the_server_list(
         settle(&window);
     };
     // A press and a release that don't move it keep no width.
-    press(602.);
-    release(602.);
+    press(605.);
+    release(605.);
     assert!(chosen.borrow().is_empty());
-    press(602.);
-    moved(552.);
+    press(605.);
+    moved(555.);
     assert_eq!(window.get_gif_picker_shown(), 548.);
-    assert_eq!(panel(), (548., 548.));
-    moved(502.);
+    assert_eq!(panel(), (551., 548.));
+    moved(505.);
     assert_eq!(window.get_gif_picker_shown(), 598.);
-    assert_eq!(right_edge(), 1096.);
-    moved(452.);
+    assert_eq!(right_edge(), 1099.);
+    moved(455.);
     assert_eq!(window.get_gif_picker_shown(), 648.);
-    assert_eq!(right_edge(), 1096.);
+    assert_eq!(right_edge(), 1099.);
     // The grid takes the width it got: three columns of 200px.
     assert_eq!(window.get_gif_grid_width(), 624.);
-    release(452.);
+    release(455.);
     assert_eq!(window.get_gif_picker_width(), 648.);
-    assert_eq!(right_edge(), 1096.);
+    assert_eq!(right_edge(), 1099.);
     assert_eq!(*chosen.borrow(), [648.]);
     // The emoji keep their own width, 520px for Discord's nine columns; the
     // GIFs come back at the width dragged.
     let tabs = found().2 + 30.;
-    click(448. + 110., tabs);
-    assert_eq!(panel(), (576., 520.));
+    // The Emoji tab, after GIFs and Stickers.
+    click(451. + 200., tabs);
+    assert_eq!(panel(), (579., 520.));
     // A click on the panel's empty places keeps it open; one beside it, in
     // the room it could take, closes it.
-    click(576. + 300., tabs);
-    assert_eq!(panel(), (576., 520.));
+    click(579. + 300., tabs);
+    assert_eq!(panel(), (579., 520.));
     click(300., tabs);
     let inner = i_slint_core::window::WindowInner::from_pub(window.window());
     assert!(inner.active_popups().is_empty());
     // It opens again on the GIFs, at the width dragged.
-    click(1030., 710.);
-    assert_eq!(panel(), (448., 648.));
+    click(990., 710.);
+    assert_eq!(panel(), (451., 648.));
     // Back to the right, the edge follows the pointer to the width it opens
     // at, and no further.
-    press(452.);
-    moved(552.);
+    press(455.);
+    moved(555.);
     assert_eq!(window.get_gif_picker_shown(), 548.);
-    moved(738.);
+    moved(741.);
     assert_eq!(window.get_gif_picker_shown(), 498.);
-    release(738.);
+    release(741.);
     assert_eq!(window.get_gif_picker_width(), 498.);
     // Left again, the edge stops just past the server list.
-    press(602.);
+    press(605.);
     moved(0.);
     assert_eq!(window.get_gif_picker_shown(), room);
-    assert_eq!(right_edge(), 1096.);
+    assert_eq!(right_edge(), 1099.);
     release(0.);
     assert_eq!(window.get_gif_picker_width(), room);
-    assert_eq!(right_edge(), 1096.);
+    assert_eq!(right_edge(), 1099.);
     window.hide().unwrap();
 }

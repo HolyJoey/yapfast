@@ -6,7 +6,7 @@ corner while a mention or a DM waits unread, as Discord counts them. Clicking
 it opens the window. Its menu has Open Yapfast, Disconnect during a call, and
 Quit.
 
-Settings → Advanced has "Close to tray", on unless turned off
+Settings → System has "Minimise Yapfast to System Tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,
 closing the window quits Yapfast; the setting's description
 says when there's no tray. A tray that starts after Yapfast, or comes back,
@@ -18,7 +18,7 @@ Starting Yapfast while it runs on the same data folder brings the running
 one's window forward, making it again if it was closed to the tray, and the
 new start ends (`src/instance.rs`). A start can carry one link (see
 [Links from other apps](#links-from-other-apps)), which the running Yapfast
-opens. A start with `--background`, as at sign-in, just ends. Settings → Advanced → "Allow multiple windows"
+opens. A start with `--background`, as at sign-in, just ends. Settings → System → "Allow multiple windows"
 (`multiple_windows` in `layout.json`, off unless turned on) starts another
 Yapfast instead, with its own window and tray icon. Each folder is its own:
 another `--data-dir` always starts. The preview never asks.
@@ -59,7 +59,7 @@ swaps what an Authorize, Redeem or Join click is for. The restart a changed rend
 makes doesn't open it again; the one after a failed GPU start does, as nothing
 opened it yet.
 
-Settings → Advanced → "Open Discord links in Yapfast" claims `discord://`
+Settings → System → "Open Discord links in Yapfast" claims `discord://`
 for this Yapfast, and its own `yapfast://` with it; turning it off gives each
 back as it was (`src/protocol.rs`). Showing the switch reads a file or the
 registry and starts no process.
@@ -85,7 +85,7 @@ registry and starts no process.
 
 ## Starting at sign-in
 
-Settings → Advanced → "Start when you sign in" starts Yapfast with
+Settings → System → "Automatically open Yapfast when your computer starts up" starts Yapfast with
 `--background` when the person signs in to their computer (`src/autostart.rs`).
 The entry is the setting, not `layout.json`: on Windows a value named
 `Yapfast` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, on Linux

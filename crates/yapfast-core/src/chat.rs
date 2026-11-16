@@ -84,6 +84,13 @@ pub struct ChatRoom {
     pub request: bool,
     /// The other person in a one-to-one DM: their Discord user id or Matrix ID.
     pub person: Option<String>,
+    /// What that person wears on Discord, shown by their name in the DM
+    /// list; boxed, as few rooms have one.
+    pub tag: Option<Box<NameTag>>,
+    /// How many a Discord voice channel holds at once, 0 for no limit; and
+    /// when its session began, in Unix seconds, 0 when unknown or over.
+    pub user_limit: u16,
+    pub voice_since: u64,
     /// Who is in a Discord voice channel or DM call, known without joining it.
     pub people: Vec<VoicePerson>,
     /// Whom a Discord DM call here is ringing, other than this account.
@@ -104,6 +111,12 @@ pub struct ChatRoom {
     pub activity: Option<String>,
     /// What they're doing, in full, as their profile shows it.
     pub activities: Activities,
+    /// A Discord channel @everyone can't see, which Discord's list marks
+    /// with a lock on its icon.
+    pub private: bool,
+    /// Who started a Discord thread or forum post, by user id: Discord
+    /// marks their messages there OP.
+    pub thread_owner: Option<String>,
     /// A Discord thread's channel, by room id: the thread lists under it.
     pub parent: Option<String>,
     /// A Discord forum, whose posts show in place of messages.
@@ -347,6 +360,16 @@ pub fn file_size(bytes: u64) -> String {
     }
 }
 
+/// A file's size as Discord's file card in a message says it: bytes, then
+/// KB and MB to two places.
+pub fn card_size(bytes: u64) -> String {
+    match bytes {
+        0..1_024 => format!("{bytes} bytes"),
+        1_024..1_048_576 => format!("{:.2} KB", bytes as f64 / 1_024.),
+        _ => format!("{:.2} MB", bytes as f64 / 1_048_576.),
+    }
+}
+
 /// Makes `list` share `items`, keeping what it held at each place where the
 /// item there is the same one, or equal to it. Returns whether it changed.
 pub fn sync_list<'a, T: PartialEq + 'a>(
@@ -420,6 +443,11 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// What they wear on Discord, shown by their name under the channel.
+    pub tag: Option<Box<NameTag>>,
+    /// The game they play, which Discord's stream popout shows under the
+    /// picture.
+    pub game: Option<Box<Activity>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -444,9 +472,32 @@ pub struct ChatServer {
     /// A Discord Community server, whose channel list opens Browse
     /// Channels.
     pub community: bool,
+    /// The address of a Discord server's banner, which tops its channel
+    /// list as in Discord.
+    pub banner: Option<String>,
+    /// A Discord server's boost level, 0 to 3, whose badge comes before its
+    /// name in its channel list's header.
+    pub boost_tier: u8,
+    /// Which badge Discord puts before its name instead, from the highest:
+    /// verified, partnered, discoverable; else the boost badge.
+    pub badge: ServerBadge,
+    /// Its boosts, when it shows its boost goal's bar over the channel list.
+    pub boost_bar: Option<u64>,
+    /// It has onboarding, which Channels & Roles opens.
+    pub onboarding: bool,
     /// The room ids of the channels this account pinned to the top of its
     /// channel list, a Discord server's, in the order they show there.
     pub pinned: Vec<String>,
+}
+
+/// The badge before a Discord server's name in its channel list's header.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ServerBadge {
+    #[default]
+    None,
+    Verified,
+    Partnered,
+    Discoverable,
 }
 
 /// Where a Discord channel or category goes in its server's channel list.
@@ -641,6 +692,11 @@ pub struct Profile {
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
+    /// Their Discord badges: each one's picture's address and what it's for.
+    pub badges: Vec<(String, String)>,
+    /// The accounts they connected: the platform, their name there, and
+    /// their page when Discord links it.
+    pub connections: Vec<(String, String, Option<String>)>,
 }
 
 /// A server a profile's person shares with this account.
@@ -697,6 +753,13 @@ pub struct ChatMember {
     pub presence: Option<Presence>,
     /// The RGB colour of their name, from their highest coloured Discord role.
     pub color: Option<u32>,
+    /// What their Discord roles add to their name beside the colour.
+    pub role_look: Option<Box<RoleLook>>,
+    /// The icon of the Discord role they're listed under: a picture's
+    /// address, or a Unicode emoji.
+    pub group_icon: Option<Arc<str>>,
+    /// Boosting the Discord server, which its member list marks.
+    pub booster: bool,
     /// Their custom status, else what they're doing, from Discord, and
     /// what they're doing in full.
     pub activity: Option<String>,
@@ -777,6 +840,26 @@ pub struct NameTag {
     pub colors: Vec<u32>,
 }
 
+/// What someone's Discord roles add to their name beside its colour: the
+/// RGB colour its gradient ends in, for a role with two colours, and the
+/// icon of their highest role with one, a picture's address or a Unicode
+/// emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct RoleLook {
+    pub second: Option<u32>,
+    pub icon: Option<Arc<str>>,
+}
+
+/// The channel a forwarded message came from, which Discord's client names
+/// under it and opens: its room, its name, and when the original was sent,
+/// in Unix seconds.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ForwardSource {
+    pub room: String,
+    pub name: String,
+    pub timestamp: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
@@ -786,6 +869,10 @@ pub struct Reply {
     /// The original message has no words, only files, which Discord's
     /// line offers to show.
     pub attachments: bool,
+    /// The original is a forward, marked before its words; `files` says it
+    /// carries some, marked after them.
+    pub forwarded: bool,
+    pub files: bool,
     /// The reply pinged its author, which Discord marks with an @.
     pub ping: bool,
     /// The address of the author's avatar, where the network gives one; see
@@ -933,6 +1020,16 @@ pub struct EmojiSet {
     /// The address of the server's icon; see [`ChatServer::icon`].
     pub icon: Option<String>,
     pub emoji: Vec<CustomEmoji>,
+}
+
+/// A server's stickers this account may send, as the sticker picker lists
+/// them under the server.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StickerSet {
+    pub server: String,
+    pub icon: Option<String>,
+    /// Each sticker's id, name and picture's address.
+    pub stickers: Vec<(String, String, String)>,
 }
 
 /// `text` with each `:name:` of a usable custom emoji, outside code, in Discord's
@@ -1342,6 +1439,8 @@ pub struct Embed {
     pub url: String,
     /// Markdown.
     pub description: String,
+    /// Who and what its description mentions, as [`ChatMessage::mentions`].
+    pub mentions: Vec<crate::mention::Mentioned>,
     pub fields: Vec<EmbedField>,
     pub footer: String,
     /// Its large picture is a video's poster, which opens `url`.
@@ -1439,10 +1538,14 @@ pub struct ChatMessage {
     /// The author's Discord server tag, after their name.
     pub tag: Option<NameTag>,
     pub color: Option<u32>,
+    /// What the author's Discord roles add to their name beside the colour.
+    pub role_look: Option<Box<RoleLook>>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
+    /// Where a forward came from, when it's a channel of this server.
+    pub forward_source: Option<Box<ForwardSource>>,
     pub body: String,
     /// The body is Markdown source whose sender also sent formatting.
     pub formatted: bool,
@@ -1570,9 +1673,11 @@ impl Poll {
 
 impl ChatMessage {
     /// Whether the timeline highlights it: a mention always, as Discord's
-    /// client does, and a reply to this account's message while it's `new`.
+    /// client does, a reply to this account's message that pings it always
+    /// too, and one that doesn't while it's `new`.
     pub fn highlighted(&self, new: bool) -> bool {
-        self.mentions_me || (self.replies_to_me && new)
+        let pinged = self.reply.as_ref().is_some_and(|reply| reply.ping);
+        self.mentions_me || (self.replies_to_me && (pinged || new))
     }
 }
 
@@ -1733,6 +1838,13 @@ pub enum Command {
     Delete {
         room: String,
         item: String,
+    },
+    /// Keep only the attachments at these addresses of this account's
+    /// Discord message, removing the rest.
+    KeepAttachments {
+        room: String,
+        item: String,
+        keep: Vec<String>,
     },
     /// Pin a Discord message to its channel's pinned messages, or unpin it.
     Pin {
@@ -2061,6 +2173,9 @@ pub enum DiscordCommand {
     /// Fetch which servers and channels the account used, and when, as
     /// Discord's clients count them; [`Event::PlacesUsed`] follows.
     PlacesUsed,
+    /// Fetch the emoji the account reacts with, as Discord's clients count
+    /// them; [`Event::ReactionsUsed`] follows.
+    ReactionsUsed,
     /// Keep these as the account's favourite GIFs, in place of the old.
     SetFavoriteGifs(Vec<FavoriteGif>),
     /// Download a GIF's picture and decode it to fit `width` by `height`;
@@ -2140,6 +2255,20 @@ pub enum DiscordCommand {
     Pins {
         room: String,
     },
+    /// The messages that mention this account, as Discord's Inbox lists
+    /// them, the newest first, older than a message's Discord id when
+    /// given; [`Event::Mentions`] follows, or [`Event::MoreMentions`].
+    Mentions(Option<String>),
+    /// Take a message, by its Discord id, out of the Inbox's mentions.
+    DismissMention(String),
+    /// Leave a Discord channel, by room id, unread after the message with
+    /// this snowflake, as Mark Unread does.
+    MarkUnread { room: String, after: String },
+    /// Send a sticker, by id, to a Discord channel, by room id.
+    SendSticker { room: String, sticker: String },
+    /// The preview of someone's stream in a voice channel, by room and
+    /// user id; [`Event::StreamPreview`] follows.
+    StreamPreview { room: String, user: String },
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -3206,6 +3335,7 @@ impl Command {
             | Command::Voters { room, .. }
             | Command::RemoveReactor { room, .. }
             | Command::Delete { room, .. }
+            | Command::KeepAttachments { room, .. }
             | Command::Pin { room, .. }
             | Command::Retry { room, .. }
             | Command::Cancel { room, .. }
@@ -3266,6 +3396,8 @@ pub enum Event {
     /// The Discord servers and channels the account used, by id, as fetched
     /// or as another client counted them; or why they couldn't be fetched.
     PlacesUsed(Result<Vec<(String, PlaceUses)>, String>),
+    /// The Unicode emoji the account reacted with on Discord, and how often.
+    ReactionsUsed(Result<Vec<(String, u32)>, String>),
     /// A GIF's picture, or none when it failed.
     GifPicture {
         url: String,
@@ -3350,6 +3482,14 @@ pub enum Event {
         room: String,
         result: Result<Vec<ChatMessage>, String>,
     },
+    /// [`DiscordCommand::Mentions`]'s messages, each with its room, or why
+    /// they didn't come.
+    Mentions(Result<Vec<SearchHit>, String>),
+    /// An older page of them, after those listed.
+    MoreMentions(Result<Vec<SearchHit>, String>),
+    /// The address of someone's stream preview, as asked; none when there
+    /// isn't one yet.
+    StreamPreview { room: String, user: String, url: Option<String> },
     /// [`DiscordCommand::StartThread`]'s thread, by room id, in the channel
     /// `room`, or why it didn't start.
     ThreadStarted {

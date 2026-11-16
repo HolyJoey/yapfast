@@ -74,12 +74,21 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// What they wear: their server tag and name style, shown by their name
+    /// under the channel as in Discord.
+    pub tag: Option<message::Tag>,
+    /// The game they play, from their presence, which Discord's stream
+    /// popout shows under the picture.
+    pub game: Option<crate::activity::Activity>,
 }
 
 /// The linked account, as Discord shows it outside any server.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `ann`, which its panel shows while pointed at.
+    #[serde(default)]
+    pub username: String,
     /// The address of its avatar.
     pub avatar: String,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
@@ -117,6 +126,10 @@ pub struct Conversation {
     pub spam: bool,
     /// The other person in a DM; none in a group.
     pub person: Option<String>,
+    /// What that person wears: their server tag and name style, which
+    /// Discord's DM list shows as its friends list does.
+    #[serde(skip)]
+    pub tag: Option<message::Tag>,
     pub unread: bool,
     /// Unread messages, as every message in a DM counts as a mention.
     pub mentions: u64,
@@ -325,6 +338,10 @@ pub struct Snapshot {
     /// Who is in each voice channel, by channel id and then by name.
     #[serde(skip)]
     pub voice: HashMap<String, Vec<VoiceMember>>,
+    /// When voice channels' sessions began, by channel id, in Unix seconds;
+    /// known for servers that were on screen.
+    #[serde(skip)]
+    pub voice_starts: Arc<HashMap<String, u64>>,
     /// The channel whose member list is on screen, and how many people can
     /// read it.
     #[serde(skip)]
@@ -532,6 +549,10 @@ impl std::fmt::Debug for VoiceServer {
 }
 
 enum Request {
+    /// Someone whose presence this account wants from a server, as Discord's
+    /// client asks for the people it shows, such as a streamer pointed at:
+    /// the gateway then sends their PRESENCE_UPDATEs.
+    SubscribeMember { guild: String, user: String },
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -793,6 +814,32 @@ impl Discord {
         });
     }
 
+    /// The newest preview of `user`'s stream in a server's voice channel.
+    pub async fn peek_stream(&self, guild: &str, channel: &str, user: &str) -> Result<Option<String>> {
+        // Their presence, for the game their popout shows under the picture.
+        let _ = self.requests.send(Request::SubscribeMember {
+            guild: guild.to_owned(),
+            user: user.to_owned(),
+        });
+        self.api
+            .stream_preview_url(&format!("guild:{guild}:{channel}:{user}"))
+            .await
+    }
+
+    /// Sends a sticker, by id, to a channel; it shows as it comes back.
+    pub async fn send_sticker(&self, channel: &str, sticker: &str) -> Result<()> {
+        self.api
+            .send_sticker(channel, sticker, &message::nonce())
+            .await
+            .map(drop)
+    }
+
+    /// Leaves a channel unread from after `message` on; see
+    /// [`crate::api::Api::ack_manual`]. MESSAGE_ACK shows it.
+    pub async fn mark_unread(&self, channel: &str, message: &str) -> Result<()> {
+        self.api.ack_manual(channel, message).await
+    }
+
     /// A page of a channel's messages.
     pub async fn history(&self, guild: &str, channel: &str, span: Span<'_>) -> Result<Page> {
         let around = match span {
@@ -965,6 +1012,55 @@ impl Discord {
                 })
             })
             .collect()
+    }
+
+    /// The messages that mention this account, the newest first, older
+    /// than `before`, each with its server's id, or [`PRIVATE`] for a DM.
+    /// Takes a message, by id, out of the Inbox's mentions.
+    pub async fn dismiss_mention(&self, message: &str) -> Result<()> {
+        self.api.dismiss_mention(message).await
+    }
+
+    pub async fn mentions(&self, before: Option<&str>) -> Result<Vec<(String, Message)>> {
+        let values = self.api.mentions(before).await?;
+        // Discord leaves out a mention's server; its channel tells.
+        let snapshot = self.snapshots.borrow().clone();
+        let guild = |value: &Value| {
+            value["guild_id"]
+                .as_str()
+                .or_else(|| {
+                    let channel = value["channel_id"].as_str()?;
+                    snapshot
+                        .servers
+                        .iter()
+                        .find(|server| server.server.channel(channel).is_some())
+                        .map(|server| server.id.as_str())
+                })
+                .unwrap_or(PRIVATE)
+                .to_owned()
+        };
+        let mut guilds: Vec<String> = Vec::new();
+        for value in &values {
+            let id = guild(value);
+            if !guilds.contains(&id) {
+                guilds.push(id);
+            }
+        }
+        let mut learned = HashMap::new();
+        for id in guilds {
+            let group: Vec<Value> = values
+                .iter()
+                .filter(|value| guild(value) == id)
+                .cloned()
+                .collect();
+            for message in self.learn_authors(&id, &group).await {
+                learned.insert(message.id.clone(), (id.clone(), message));
+            }
+        }
+        Ok(values
+            .iter()
+            .filter_map(|value| learned.remove(value["id"].as_str()?))
+            .collect())
     }
 
     /// A channel's pinned messages, the latest pinned first: a server's
@@ -1244,6 +1340,17 @@ impl Discord {
 
     pub async fn edit(&self, channel: &str, id: &str, content: &str) -> Result<Message> {
         let value = self.api.edit(channel, id, content).await?;
+        message::parse(&value).ok_or_else(|| anyhow!("could not understand Discord's answer"))
+    }
+
+    /// Keeps only the attachments at these addresses of a message; see
+    /// [`crate::api::Api::keep_attachments`].
+    pub async fn keep_attachments(&self, channel: &str, id: &str, urls: &[String]) -> Result<Message> {
+        let ids: Vec<String> = urls
+            .iter()
+            .filter_map(|url| message::attachment_id(url).map(str::to_owned))
+            .collect();
+        let value = self.api.keep_attachments(channel, id, &ids).await?;
         message::parse(&value).ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
@@ -1915,6 +2022,13 @@ impl Discord {
     pub async fn places_used(&self) -> Result<Vec<(String, crate::frecency::Uses)>> {
         let settings = self.api.frecency_settings().await?;
         Ok(crate::frecency::read_places(&settings).unwrap_or_default())
+    }
+
+    /// The emoji this account reacted with, as Discord's clients counted
+    /// them; see [`crate::frecency::read_reactions`].
+    pub async fn reactions_used(&self) -> Result<Vec<(String, crate::frecency::Uses)>> {
+        let settings = self.api.frecency_settings().await?;
+        Ok(crate::frecency::read_reactions(&settings).unwrap_or_default())
     }
 
     /// Keeps `favorites` as the account's favourite GIFs, in place of the old.
@@ -2942,6 +3056,12 @@ impl Discord {
     /// role's, once their roles are known.
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
+    }
+
+    /// What a member's roles add to their name beside its colour; see
+    /// [`Server::look`].
+    pub fn role_look(&self, server: &Server, user: &str) -> Option<crate::ready::RoleLook> {
+        server.look(self.read_names().roles(&server.id, user))
     }
 
     /// [`Discord::render`], with the users and roles the message mentions and

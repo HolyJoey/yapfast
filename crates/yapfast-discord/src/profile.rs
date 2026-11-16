@@ -33,6 +33,43 @@ pub struct Profile {
     pub mutual_servers: Vec<MutualServer>,
     /// The friends this account shares with them.
     pub mutual_friends: Vec<MutualFriend>,
+    /// Their badges, as the profile lists them: each one's picture's
+    /// address and what it's for.
+    #[serde(default)]
+    pub badges: Vec<(String, String)>,
+    /// The accounts they connected and show, as Discord's profile lists them.
+    #[serde(default)]
+    pub connections: Vec<Connection>,
+}
+
+/// An account someone connected to Discord and shows on their profile.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Connection {
+    /// Discord's name for the platform, such as `github` or `steam`.
+    pub kind: String,
+    /// Their name there.
+    pub name: String,
+    /// Their page there, where Discord links it.
+    pub link: Option<String>,
+}
+
+/// The page of someone's account on a platform, as Discord's profile links
+/// it; none where Discord shows the name alone.
+fn connection_link(kind: &str, id: &str, name: &str) -> Option<String> {
+    Some(match kind {
+        "github" => format!("https://github.com/{name}"),
+        "reddit" => format!("https://www.reddit.com/u/{name}"),
+        "steam" => format!("https://steamcommunity.com/profiles/{id}"),
+        "twitch" => format!("https://www.twitch.tv/{name}"),
+        "youtube" => format!("https://www.youtube.com/channel/{id}"),
+        "twitter" => format!("https://x.com/{name}"),
+        "spotify" => format!("https://open.spotify.com/user/{id}"),
+        "tiktok" => format!("https://www.tiktok.com/@{name}"),
+        "bluesky" => format!("https://bsky.app/profile/{name}"),
+        "roblox" => format!("https://www.roblox.com/users/{id}/profile"),
+        "mastodon" | "domain" => format!("https://{name}"),
+        _ => return None,
+    })
 }
 
 /// A server this account shares with someone.
@@ -205,6 +242,33 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
                 })
             })
             .collect(),
+        badges: value["badges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|badge| {
+                let icon = badge["icon"].as_str()?;
+                Some((
+                    format!("{}/badge-icons/{icon}.png", ready::cdn()),
+                    badge["description"].as_str().unwrap_or_default().to_owned(),
+                ))
+            })
+            .collect(),
+        connections: value["connected_accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|account| {
+                let kind = account["type"].as_str()?;
+                let name = account["name"].as_str()?;
+                let id = account["id"].as_str().unwrap_or_default();
+                Some(Connection {
+                    kind: kind.to_owned(),
+                    name: name.to_owned(),
+                    link: connection_link(kind, id, name),
+                })
+            })
+            .collect(),
         user_id: id,
     })
 }
@@ -214,6 +278,33 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn connections_link_where_discords_profile_does() {
+        let answer = json!({
+            "user": {"id": "1", "username": "ann"},
+            "connected_accounts": [
+                {"type": "github", "id": "9", "name": "ann-codes", "verified": true},
+                {"type": "steam", "id": "7656", "name": "Ann"},
+                {"type": "battlenet", "id": "4", "name": "Ann#1234"},
+            ],
+        });
+        let profile = parse(&answer, None).unwrap();
+        let links: Vec<_> = profile
+            .connections
+            .iter()
+            .map(|account| (account.kind.as_str(), account.link.as_deref()))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                ("github", Some("https://github.com/ann-codes")),
+                ("steam", Some("https://steamcommunity.com/profiles/7656")),
+                ("battlenet", None),
+            ],
+            "Battle.net shows a name only"
+        );
+    }
 
     #[test]
     fn the_servers_profile_wins_over_their_own() {

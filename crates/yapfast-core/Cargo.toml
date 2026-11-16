@@ -16,7 +16,7 @@ default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
+discord = ["dep:symphonia", "dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -45,6 +45,9 @@ ndarray = { version = "0.15", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
 # room around Yapfast's own sounds; libDF uses it too.
 realfft = "3.5"
+# Decodes Discord's own sounds, which it serves as MP3 and Yapfast downloads
+# at run time; see `yapfast_discord::ui_font`.
+symphonia = { version = "0.5", default-features = false, features = ["mp3"], optional = true }
 # RNNoise, a Rust port: Discord voice's other noise suppressor, to compare.
 nnnoiseless = { version = "0.5.2", default-features = false, optional = true }
 rand = { version = "0.9", optional = true }

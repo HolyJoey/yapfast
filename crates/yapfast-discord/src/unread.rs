@@ -14,6 +14,18 @@ use crate::{
     ready::{Access, Channel, PRIVATE, Thread},
 };
 
+/// The flag of READY's `notification_settings` for an account that sets
+/// what counts as unread apart from what notifies.
+const USE_NEW_NOTIFICATIONS: u64 = 1 << 4;
+
+/// How long a channel is quiet before a server that lists only followed
+/// channels stops marking it, in milliseconds: Discord's client's week.
+const STALE: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// How lately this account read a channel it doesn't follow for it to
+/// still show unread, in milliseconds: Discord's client's three days.
+const VISITED: u64 = 3 * 24 * 60 * 60 * 1000;
+
 #[derive(Clone, Copy, Default)]
 struct Read {
     /// The last read message's snowflake.
@@ -34,6 +46,10 @@ pub struct Unreads {
     settings: HashMap<String, Arc<Notifications>>,
     /// Each server's default notification level, for accounts that kept it.
     default_levels: HashMap<String, Level>,
+    /// Whether the account chooses what counts as unread apart from what
+    /// notifies: `USE_NEW_NOTIFICATIONS` in READY's `notification_settings`.
+    /// Without it every message counts.
+    unread_settings: bool,
 }
 
 /// Discord sends some lists as `{"entries": [...]}` with versioning capabilities.
@@ -59,7 +75,12 @@ fn now() -> u64 {
 
 impl Unreads {
     pub fn from_ready(ready: &Value) -> Self {
-        let mut unreads = Self::default();
+        let mut unreads = Self {
+            unread_settings: ready["notification_settings"]["flags"]
+                .as_u64()
+                .is_some_and(|flags| flags & USE_NEW_NOTIFICATIONS != 0),
+            ..Self::default()
+        };
         for guild in ready["guilds"].as_array().into_iter().flatten() {
             unreads.learn_server(guild);
         }
@@ -433,8 +454,21 @@ impl Unreads {
     }
 
     /// A server's text channel's muted, unread and mention state, for an
-    /// account with `access` to it, as a snapshot marks it.
-    pub fn channel(&self, guild: &str, channel: &Channel, access: Access) -> (bool, bool, u64) {
+    /// account with `access` to it, as a snapshot marks it, by the rules of
+    /// Discord's client. A channel is unread only where the account takes
+    /// every message as unread: by the channel's own setting, its
+    /// category's, the server's, or else where every message notifies; one
+    /// set to mentions only shows just those. In a `community` server that
+    /// lists only followed channels, a channel quiet for [`STALE`] shows
+    /// nothing, and one not followed shows only its mentions, unless this
+    /// account read it in the last [`VISITED`].
+    pub fn channel(
+        &self,
+        guild: &str,
+        channel: &Channel,
+        access: Access,
+        community: bool,
+    ) -> (bool, bool, u64) {
         let settings = self.settings.get(guild);
         let now = now();
         let channel_muted =
@@ -446,13 +480,50 @@ impl Unreads {
                 .thread
                 .as_ref()
                 .is_some_and(|thread| thread.mute.active(now));
-        let (unread, mentions) = self.state(guild, &channel.id);
+        let (mut unread, mut mentions) = self.state(guild, &channel.id);
+        if channel.thread.is_none() {
+            let parent = channel.parent.as_deref();
+            if community && settings.is_some_and(|settings| settings.follows_only()) {
+                (unread, mentions) =
+                    self.followed_marks(channel, parent, settings, unread, mentions, now);
+            }
+            let default = self.default_levels.get(guild).copied().unwrap_or_default();
+            let every = !self.unread_settings
+                || settings.map_or(default == Level::All, |settings| {
+                    settings.unread_all(&channel.id, parent, default)
+                });
+            unread &= every || mentions > 0;
+        }
         let readable = access != Access::Hidden;
         (
             muted,
             readable && unread && !muted,
             if readable { mentions } else { 0 },
         )
+    }
+
+    /// A channel's unread state and mentions in a server listing only
+    /// followed channels: nothing once it's been quiet for [`STALE`], and
+    /// only its mentions while it's not followed, unless read in the last
+    /// [`VISITED`].
+    fn followed_marks(
+        &self,
+        channel: &Channel,
+        parent: Option<&str>,
+        settings: Option<&Arc<Notifications>>,
+        unread: bool,
+        mentions: u64,
+        now: u64,
+    ) -> (bool, u64) {
+        let at = |snowflake: u64| (snowflake >> 22) + crate::message::DISCORD_EPOCH_MS;
+        let last = self.last_message(&channel.id);
+        let read = self.reads.get(&channel.id).map_or(0, |read| read.last);
+        if last == 0 || at(last) < now.saturating_sub(STALE) {
+            return (false, 0);
+        }
+        let followed = settings.is_some_and(|settings| settings.follows(&channel.id, parent));
+        let visited = read > 0 && at(read) > now.saturating_sub(VISITED);
+        (unread && (mentions > 0 || followed || visited), mentions)
     }
 
     /// Whether a DM is muted and unread, its mentions and the last message
@@ -575,7 +646,7 @@ mod tests {
                 .iter()
                 .map(|channel| {
                     let (_, unread, mentions) =
-                        unreads.channel(&server.id, channel, ready::Access::Join);
+                        unreads.channel(&server.id, channel, ready::Access::Join, false);
                     (unread, mentions)
                 })
                 .collect::<Vec<_>>()
@@ -665,5 +736,56 @@ mod tests {
             &roles,
         );
         assert_eq!(state(&unreads, &mut server)[1..3], [(false, 0), (false, 0)]);
+    }
+
+    #[test]
+    fn marks_as_discords_client_does() {
+        let fresh = snowflake_at(now() - 60_000);
+        let old = snowflake_at(now() - 8 * 24 * 60 * 60 * 1000);
+        let ready = |flags: u64, account: u64| {
+            json!({
+                "notification_settings": {"flags": account},
+                "guilds": [{"id": "10", "properties": {"name": "Test",
+                    "default_message_notifications": 1}, "channels": [
+                    {"id": "11", "type": 0, "last_message_id": old.to_string()},
+                    {"id": "12", "type": 0, "last_message_id": fresh.to_string()},
+                    {"id": "13", "type": 0, "last_message_id": fresh.to_string()},
+                ]}],
+                "read_state": {"entries": [
+                    {"id": "11", "last_message_id": "400", "mention_count": 3},
+                    {"id": "12", "last_message_id": "400", "mention_count": 0},
+                    {"id": "13", "last_message_id": "400", "mention_count": 2},
+                ]},
+                "user_guild_settings": {"entries": [
+                    {"guild_id": "10", "flags": flags, "message_notifications": 1,
+                     "channel_overrides": []},
+                ]},
+            })
+        };
+        let marks = |flags: u64, account: u64, community: bool| {
+            let ready = ready(flags, account);
+            let unreads = Unreads::from_ready(&ready);
+            let server = ready::servers(&ready).remove(0);
+            server
+                .text_channels
+                .iter()
+                .map(|channel| {
+                    let (_, unread, mentions) =
+                        unreads.channel(&server.id, channel, ready::Access::Join, community);
+                    (unread, mentions)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(marks(0, 0, true), [(true, 3), (true, 0), (true, 2)]);
+        // A server that lists only followed channels: one quiet for a week
+        // shows nothing, and one not followed only its mentions.
+        assert_eq!(marks(1 << 14, 0, true), [(false, 0), (false, 0), (true, 2)]);
+        assert_eq!(marks(1 << 14, 0, false), [(true, 3), (true, 0), (true, 2)]);
+        // An account that sets what's unread: mentions only, as what notifies.
+        assert_eq!(marks(0, 1 << 4, true), [(true, 3), (false, 0), (true, 2)]);
+        assert_eq!(
+            marks(1 << 11, 1 << 4, true),
+            [(true, 3), (true, 0), (true, 2)]
+        );
     }
 }

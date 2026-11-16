@@ -39,8 +39,9 @@ fn a_member_below_gets_every_choice_in_discords_order() {
 #[test]
 fn nobody_acts_on_those_above_them_or_the_owner() {
     let app = staff();
+    // Discord's offers a call to anyone it may message.
     let personal = [
-        Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
+        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
     ];
     assert_eq!(app.person_choices("3"), personal, "Cara, a Lead");
     assert_eq!(app.person_choices("99"), personal, "Owen, the owner");
@@ -49,9 +50,9 @@ fn nobody_acts_on_those_above_them_or_the_owner() {
     assert_eq!(
         app.person_choices("3"),
         [
-            Profile, Mention, Message, AddNote, AddFriend, Ignore, Block, CopyId
+            Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId
         ],
-        "Leads may do nothing, to another Lead"
+        "Leads may do nothing, to another Lead, but see their roles"
     );
 }
 
@@ -75,10 +76,10 @@ fn ones_own_entry_has_no_friend_or_moderation_choices() {
         staff().person_choices("1"),
         [Profile, EditServerProfile, Roles, CopyId]
     );
-    // Without Manage Roles.
+    // Without Manage Roles, Discord's lists one's own roles to look at.
     assert_eq!(
         server(&["20"]).person_choices("1"),
-        [Profile, EditServerProfile, CopyId]
+        [Profile, EditServerProfile, Roles, CopyId]
     );
 }
 
@@ -97,6 +98,7 @@ fn without_permissions_only_personal_choices_show() {
             Unfriend,
             Ignore,
             Block,
+            Roles,
             CopyId
         ]
     );

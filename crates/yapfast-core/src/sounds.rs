@@ -17,8 +17,11 @@ const TAU: f32 = std::f32::consts::TAU;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoundSet {
-    /// A recorded kalimba's pluck.
+    /// Discord's own sounds, once they're downloaded; see
+    /// [`use_discord_sounds`]. Until then, and without Discord, New Kalimba.
     #[default]
+    Discord,
+    /// A recorded kalimba's pluck.
     NewKalimba,
     /// A muffled piano.
     Felt,
@@ -34,7 +37,8 @@ pub enum SoundSet {
 
 impl SoundSet {
     /// In the order Settings lists them, which `layout.json` doesn't depend on.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
+        Self::Discord,
         Self::NewKalimba,
         Self::Felt,
         Self::Marimba,
@@ -45,7 +49,7 @@ impl SoundSet {
 
     /// Whether the set plays a recorded note rather than a synthesized one.
     fn recorded(self) -> bool {
-        matches!(self, Self::NewKalimba | Self::Flute)
+        matches!(self, Self::Discord | Self::NewKalimba | Self::Flute)
     }
 }
 
@@ -237,7 +241,8 @@ fn voice(set: SoundSet, hz: f32, time: f32, velocity: f32, fade: f32) -> f32 {
                 * decay(0.2 * longer * fade)
                 * attack(time, 0.006)
         }
-        SoundSet::NewKalimba => KALIMBA.voice(hz, time, fade),
+        // Discord's own play from their files; see `render`.
+        SoundSet::NewKalimba | SoundSet::Discord => KALIMBA.voice(hz, time, fade),
         SoundSet::Flute => FLUTE.voice(hz, time, fade),
         SoundSet::Glow => {
             let longer = (440.0 / hz).powf(0.3);
@@ -305,6 +310,13 @@ const PEAK: f32 = 0.25;
 /// `sound` in `set`, as interleaved stereo at 48 kHz peaking at [`PEAK`] less
 /// its own quieting, before any volume. It ends once 40 dB below its peak.
 pub fn render(set: SoundSet, sound: Sound) -> Vec<f32> {
+    if set == SoundSet::Discord {
+        #[cfg(feature = "discord")]
+        if let Some(samples) = discord::render(sound) {
+            return samples;
+        }
+        return render(SoundSet::NewKalimba, sound);
+    }
     let (notes, fade, loudness) = score(sound);
     let last = notes.iter().fold(0.0f32, |last, note| last.max(note.0));
     let mut dry = vec![0.0f32; ((last + 2.0) * RATE as f32) as usize];
@@ -386,6 +398,128 @@ pub fn render(set: SoundSet, sound: Sound) -> Vec<f32> {
         pair.iter_mut().for_each(|sample| *sample *= gain * fade);
     }
     stereo
+}
+
+/// Where Discord's downloaded sounds are, for [`SoundSet::Discord`].
+static DISCORD_SOUNDS: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Plays [`SoundSet::Discord`] from the MP3s in `folder`, as Discord's web
+/// client serves them.
+pub fn use_discord_sounds(folder: std::path::PathBuf) {
+    let _ = DISCORD_SOUNDS.set(folder);
+}
+
+#[cfg(feature = "discord")]
+mod discord {
+    use super::{RATE, Sound};
+    use symphonia::core::{
+        audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream,
+        meta::MetadataOptions, probe::Hint,
+    };
+
+    /// Discord's sounds peak near full scale; Yapfast's peak 12 dB under it,
+    /// so these are brought down 6 dB to sit with them.
+    const LEVEL: f32 = 0.5;
+
+    /// The file Discord plays for `sound`.
+    fn file(sound: Sound) -> &'static str {
+        match sound {
+            Sound::Join => "user_join",
+            Sound::Leave => "user_leave",
+            Sound::Mute => "mute",
+            Sound::Unmute => "unmute",
+            Sound::Deafen => "deafen",
+            Sound::Undeafen => "undeafen",
+            Sound::Message | Sound::Mention => "message1",
+            Sound::ViewerJoin => "stream_user_joined",
+            Sound::ViewerLeave => "stream_user_left",
+            Sound::StreamStart => "stream_started",
+            Sound::StreamStop => "stream_ended",
+        }
+    }
+
+    /// `sound` as interleaved stereo at Yapfast's rate, or `None` when its
+    /// file isn't there or doesn't decode.
+    pub(super) fn render(sound: Sound) -> Option<Vec<f32>> {
+        decode(file(sound))
+    }
+
+    /// Discord's sound `name`, as [`render`] gives one.
+    pub(super) fn decode(name: &str) -> Option<Vec<f32>> {
+        let path = super::DISCORD_SOUNDS.get()?.join(format!("{name}.mp3"));
+        let file = std::fs::File::open(path).ok()?;
+        let stream = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut hint = Hint::new();
+        hint.with_extension("mp3");
+        let mut format = symphonia::default::get_probe()
+            .format(&hint, stream, &FormatOptions::default(), &MetadataOptions::default())
+            .ok()?
+            .format;
+        let track = format.default_track()?;
+        let (id, rate) = (track.id, track.codec_params.sample_rate?);
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .ok()?;
+        let mut stereo: Vec<f32> = Vec::new();
+        while let Ok(packet) = format.next_packet() {
+            if packet.track_id() != id {
+                continue;
+            }
+            let Ok(decoded) = decoder.decode(&packet) else { continue };
+            let spec = *decoded.spec();
+            let channels = spec.channels.count();
+            let mut buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
+            buffer.copy_interleaved_ref(decoded);
+            for frame in buffer.samples().chunks(channels) {
+                let left = frame[0];
+                let right = frame.get(1).copied().unwrap_or(left);
+                stereo.extend([left, right]);
+            }
+        }
+        (!stereo.is_empty()).then(|| resample(&stereo, rate))
+    }
+
+    /// Interleaved stereo at `rate` brought to Yapfast's, between samples by
+    /// a straight line, and to [`LEVEL`].
+    fn resample(stereo: &[f32], rate: u32) -> Vec<f32> {
+        let frames = stereo.len() / 2;
+        let step = rate as f64 / f64::from(RATE);
+        let out = (frames as f64 / step) as usize;
+        let mut resampled = Vec::with_capacity(out * 2);
+        for index in 0..out {
+            let at = index as f64 * step;
+            let (whole, part) = (at as usize, (at.fract()) as f32);
+            for channel in 0..2 {
+                let here = stereo[whole * 2 + channel];
+                let next = stereo.get((whole + 1) * 2 + channel).copied().unwrap_or(here);
+                resampled.push((here + (next - here) * part) * LEVEL);
+            }
+        }
+        resampled
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn resampling_keeps_the_length_in_time() {
+            let second: Vec<f32> = vec![0.5; 44_100 * 2];
+            let out = super::resample(&second, 44_100);
+            assert_eq!(out.len(), super::RATE as usize * 2);
+            assert!((out[100] - 0.25).abs() < 1e-6, "brought down to LEVEL");
+        }
+    }
+}
+
+/// Discord's ring for an incoming call, or `calling` its ringback, as
+/// interleaved stereo at 48 kHz, once downloaded; see [`use_discord_sounds`].
+pub fn discord_ring(calling: bool) -> Option<Vec<f32>> {
+    #[cfg(feature = "discord")]
+    return discord::decode(if calling { "call_calling" } else { "call_ringing" });
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = calling;
+        None
+    }
 }
 
 /// A volume slider's percentage, up to 200%, as a gain. Loudness is heard on a

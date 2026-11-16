@@ -246,17 +246,46 @@ export component PinsPopover inherits Rectangle {
     callback jump(string);
     callback open-link(string);
     callback close;
+    /// The note says there are no pins: Discord's drawing and its tip show.
+    in property <bool> empty;
     /// How tall it would be to show every pin.
-    out property <length> fit: 49px + (root.note != "" ? 172px : list.preferred-height);
+    out property <length> fit: 49px + (root.empty ? 300px : root.note != "" ? 172px : list.preferred-height);
     width: 420px;
     Popover {
         icon: @image-url("icons/pin.svg");
         heading: "Pinned Messages";
         close => { root.close(); }
-        if root.note != "": VerticalLayout {
+        if root.note != "" && !root.empty: VerticalLayout {
             padding: 24px; spacing: 12px; alignment: center;
             Image { source: @image-url("icons/pin.svg"); height: 40px; image-fit: contain; colorize: Theme.faint; }
             Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
+        }
+        // As Discord's: a large pin on a round mark and what's missing,
+        // then on a darker band, a tip on how pins are made.
+        if root.empty: VerticalLayout {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 24px; spacing: 16px; alignment: center; vertical-stretch: 1;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 96px; height: 96px; border-radius: 48px; background: Theme.raised;
+                        Image { source: @image-url("icons/pin.svg"); height: 48px; image-fit: contain; colorize: Theme.secondary; }
+                    }
+                }
+                Text { text: root.note; color: Theme.text; font-size: 16px; wrap: word-wrap; horizontal-alignment: center; }
+            }
+            Rectangle {
+                background: Theme.sunken; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+                VerticalLayout {
+                    padding: 16px; spacing: 4px;
+                    Text { text: "Protip:"; color: Theme.live; font-size: 13px; font-weight: 700; horizontal-alignment: center; }
+                    Text {
+                        text: "Users with the 'Pin Messages' permission can pin a message from its context menu.";
+                        color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-alignment: center;
+                    }
+                }
+            }
         }
         // Always there, so its height can be read; empty while a note shows.
         ScrollView {
@@ -269,6 +298,90 @@ export component PinsPopover inherits Rectangle {
                     found: pin;
                     jump => { root.jump(pin.item); }
                     open-link(link) => { root.open-link(link); }
+                }
+            }
+        }
+    }
+}
+
+// Discord's Inbox, under its button in the title bar: the messages that
+// mention this account, the newest first, each run in one channel under the
+// channel's name and its server's.
+export component InboxPopover inherits Rectangle {
+    in property <[FoundRow]> mentions;
+    /// Said instead of the list: while it loads, when it fails, or when
+    /// nothing mentions this account.
+    in property <string> note;
+    callback jump(string, string);
+    callback open-link(string);
+    /// A mention's ✓: take it out of the Inbox, by item.
+    callback dismiss(string);
+    /// Discord may have older mentions; asking loads the next page.
+    in property <bool> more;
+    in property <bool> loading-more;
+    callback load-more;
+    callback close;
+    out property <length> fit: 49px + 41px + (root.note != "" ? 172px : list.preferred-height);
+    width: 560px;
+    Popover {
+        icon: @image-url("icons/inbox.svg");
+        heading: "Inbox";
+        close => { root.close(); }
+        // Discord's tabs; Yapfast keeps the mentions, the one it fetches.
+        Rectangle {
+            height: 41px; background: Theme.panel;
+            HorizontalLayout {
+                padding-left: 16px; spacing: 24px; alignment: start;
+                VerticalLayout {
+                    Text { vertical-stretch: 1; text: "Mentions"; color: Theme.accent; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                    Rectangle { height: 2px; background: Theme.accent; }
+                }
+            }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
+        }
+        if root.note != "": VerticalLayout {
+            padding: 24px; spacing: 12px; alignment: center;
+            Image { source: @image-url("icons/inbox.svg"); height: 40px; image-fit: contain; colorize: Theme.faint; }
+            Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
+        }
+        ScrollView {
+            vertical-stretch: root.note == "" ? 1 : 0;
+            max-height: root.note == "" ? 100000px : 0px;
+            visible: root.note == "";
+            list := VerticalLayout {
+                padding: 12px; spacing: 8px; alignment: start;
+                for found in root.mentions: VerticalLayout {
+                    spacing: 6px;
+                    if found.heading != "": HorizontalLayout {
+                        padding-top: 6px; spacing: 4px;
+                        Middle { Image { source: @image-url("icons/hash.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                        Text { text: found.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+                    }
+                    Rectangle {
+                        min-height: card.preferred-height;
+                        card := FoundCard {
+                            width: parent.width;
+                            found: found;
+                            jump => { root.jump(found.room, found.item); }
+                            open-link(link) => { root.open-link(link); }
+                        }
+                        // Discord's ✓, which takes the mention out of the Inbox.
+                        IconButton {
+                            x: parent.width - self.width - 8px; y: 8px; height: 28px;
+                            size: 28px; glyph: 16px; radius: 8px; fill: Theme.raised;
+                            icon: @image-url("icons/check.svg"); label: "Mark as read"; tip-side: 2;
+                            clicked => { root.dismiss(found.item); }
+                        }
+                    }
+                }
+                // Discord loads older ones as the list scrolls; here, on asking.
+                if root.more: HorizontalLayout {
+                    alignment: center; padding-top: 4px; padding-bottom: 8px;
+                    ActionButton {
+                        small: true; enabled: !root.loading-more;
+                        text: root.loading-more ? "Loading..." : "Load older mentions";
+                        clicked => { root.load-more(); }
+                    }
                 }
             }
         }
@@ -431,11 +544,17 @@ export component ThreadsPopover inherits Rectangle {
         }
         if root.note == "" && root.empty: VerticalLayout {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
-            Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
-            Text { text: "There are no threads."; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+            HorizontalLayout {
+                alignment: center; padding-bottom: 8px;
+                Rectangle {
+                    width: 112px; height: 112px; border-radius: 56px; background: Theme.raised;
+                    Image { source: @image-url("icons/thread.svg"); height: 56px; image-fit: contain; colorize: Theme.secondary; }
+                }
+            }
+            Text { text: "There are no threads."; color: Theme.text; font-size: 24px; font-weight: 700; horizontal-alignment: center; }
             Text {
-                text: "Stay focused on a conversation with a thread - a temporary text channel.";
-                color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;
+                text: "Stay focused on a conversation with a thread – a temporary text channel.";
+                color: Theme.secondary; font-size: 16px; wrap: word-wrap; horizontal-alignment: center;
             }
             if root.can-create: HorizontalLayout {
                 alignment: center; padding-top: 8px;

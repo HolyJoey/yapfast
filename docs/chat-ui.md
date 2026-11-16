@@ -62,8 +62,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   other person's profile there instead, which the person icon in its header
   hides or shows. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
-  ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
-  custom statuses, and a red clock beside someone timed out. Yapfast subscribes to the list's
+  ONLINE and OFFLINE, with counts, avatars, status dots, role colours
+  (fading between a role's two colours), a hoisted role's icon on its
+  heading, Discord's gem after boosters, custom statuses after a controller
+  for someone playing, and a red clock beside someone timed out. In chat a
+  name is followed by its highest role's icon, and reactions wrap onto more
+  lines, ending with a button that adds another. Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
@@ -312,7 +316,7 @@ full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
 
 The window follows Discord's arrangement:
 
-- A 72px server rail. Each server is a circle that becomes a rounded square,
+- A 72px server rail. Each server is a 40px rounded square, as in Discord,
   with a white pill at the rail edge for hover, selection or unread activity.
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
@@ -405,7 +409,53 @@ The window follows Discord's arrangement:
   submenu taller than the window scrolls, and the keys keep their row in
   sight. `src/ui/menus.rs` builds a menu's rows with each row's submenu, and
   ticks a box when it's chosen.
-- A dock across the rail and sidebar: the voice panel, whose signal icon
+- Menus use Discord's words and case ("Mark as Read", "Copy Server ID",
+  "Edit Per-server Profile") and, as Discord's do, no icons but the ID
+  badge before copying an id. A server's menu runs Mark as Read, Invite to
+  Server, its notifications (Mute Server, Notification Settings, Hide Muted
+  Channels, Show All Channels), Edit Per-server Profile, managing it,
+  Leave Server, then Copy Server ID; its header's dropdown lists the same
+  choices in Discord's dropdown order.
+- A DM's call shows above its messages as Discord's does: while nobody films
+  or shares, a band of round pictures, a green ring on whoever speaks, over
+  the call's controls in grouped pills (microphone and camera; screen and
+  soundboard; then leaving, in red). Cameras and streams bring back the
+  grid. A call this account isn't in shows its people's pictures over green
+  square buttons that join or answer it. Its DM's row counts the call's
+  time in green, the DM leads the server rail with the call's mark, and
+  "started a call." notices end with "Join the call" while it goes on.
+  Whoever is in a DM's call this account can see shows "In a call" after a
+  green phone in the DM list and a group DM's member list, as does the
+  account panel during a DM call; a group DM's list crowns its owner and
+  ends with Invite to Group DM.
+- Someone's menu is Discord's: Profile, Mention, Message, Start a Call (for
+  anyone it may message), Add Note "Only visible to you", Play on Spotify
+  while they listen, then Invite to Server, friendship, and Roles, which
+  lists their roles with their colours' dots, or ticks them for whoever
+  may give them. Profile opens the full profile: the card with its banner,
+  Add Friend, Message and ⋯, the bio, Member Since on one line (Discord's
+  mark and the server's icon), roles and connected accounts (linked with ↗
+  where Discord links them); beside it Activity, with each activity in its
+  own box, and the mutual friends and servers.
+- Settings open in Discord's card: who is signed in and Edit Profiles above
+  the sections, with Discord's pages under its headings: Account, Data &
+  Privacy, Messaging Permissions (Ignore & Block) and Notifications (with
+  the sounds); Experience: Voice & Video, Appearance (themes, then Messages
+  and Chat Box), Accessibility (text size, display name styles, GIFs),
+  System and Language & Time; Games & Apps: Registered Games and Activity
+  Privacy. A build with Matrix adds Discord, to link it. Over each page a
+  bar with its name and ×. Switches sit on the right of their text. Appearance starts
+  with a row of theme swatches, the chosen one ringed and ticked, over the
+  theme cards that edit them.
+- A server's header shows Discord's badge before its name: verified,
+  partnered or discoverable (a scalloped badge), else the pink boost badge
+  from boost level 1. Under its banner, its Boost Goal bar with its boosts
+  when it shows one (`premium_progress_bar_enabled`), then Channels & Roles
+  when it has onboarding, which opens Browse Channels; private channels (ones @everyone can't see) have a lock on
+  their icon, and the server's owner a crown in its member list.
+- A dock across the rail and sidebar: the voice panel, "Voice Connected"
+  and where, with no timer (the call's DM row has it), a noise suppression
+  button whose popout turns the filter on or off, and a signal icon
   and status show a Discord call's ping on hover and its connection details
   on a click (see [Connection details](discord/voice.md#connection-details)), then the account panel
   with avatar, status, mute and deafen during a call, and settings (account,

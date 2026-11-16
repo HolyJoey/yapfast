@@ -102,6 +102,10 @@ events! {
     StreamUpdate = "STREAM_UPDATE",
     StreamDelete = "STREAM_DELETE",
     StreamServerUpdate = "STREAM_SERVER_UPDATE",
+    /// When voice channels' sessions began: a server's, asked for with op
+    /// 43, and one channel's as its session starts or ends.
+    ChannelInfo = "CHANNEL_INFO",
+    VoiceChannelStartTimeUpdate = "VOICE_CHANNEL_START_TIME_UPDATE",
     /// Someone sent a soundboard sound or an emoji into this account's call.
     VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
     /// A server's soundboard sounds, asked for with op 31.
@@ -198,6 +202,11 @@ mod tests {
             ("STREAM_UPDATE", Event::StreamUpdate),
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
+            ("CHANNEL_INFO", Event::ChannelInfo),
+            (
+                "VOICE_CHANNEL_START_TIME_UPDATE",
+                Event::VoiceChannelStartTimeUpdate,
+            ),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (

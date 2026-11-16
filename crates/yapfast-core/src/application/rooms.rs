@@ -27,6 +27,9 @@ pub enum MenuChoice {
     /// Start a call with someone with this account's camera on, as the
     /// friends list's "Start Video Call" does.
     VideoCall,
+    /// Open the song someone is listening to on Spotify, as Discord's menu
+    /// offers.
+    PlayOnSpotify,
     /// Write this account's note on a Discord DM's other person, or the
     /// nickname it gives them as a friend.
     AddNote,
@@ -768,6 +771,10 @@ impl Application {
     /// Selects a room; with `chat`, a voice channel shows its chat rather
     /// than its call.
     fn select_showing(&mut self, id: String, chat: bool) -> Vec<Effect> {
+        // Leaving a channel marked unread lets it be read again.
+        if self.marked_unread.as_ref() != Some(&id) {
+            self.marked_unread = None;
+        }
         // A thread beside the channel goes when another room shows.
         let changes = self.state.selected.as_ref() != Some(&id)
             && self

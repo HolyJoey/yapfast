@@ -596,6 +596,23 @@ fn a_busy_open_channel_lets_go_of_messages_well_above_the_view() {
 }
 
 #[test]
+fn what_was_kept_on_disk_reaches_only_its_own_newest_message() {
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    for id in 1000..1050 {
+        open.shown.messages.insert(id, message(&id.to_string(), None));
+    }
+    open.loaded = true;
+    assert!(!open.synced, "the latest page hasn't come");
+    assert!(open.reaches(1020), "kept, so it shows without asking");
+    assert!(
+        !open.reaches(1100),
+        "after the kept messages, it may be in the gap before the latest page"
+    );
+    open.loaded(Load::Latest, shown(page(1200..1250)));
+    assert!(open.synced);
+}
+
+#[test]
 fn a_window_of_older_messages_shows_in_place_of_the_newest_until_it_reaches_them() {
     let mut open = OpenChannel::new("discord:10:11").unwrap();
     let newest = |open: &OpenChannel| -> Vec<u64> {

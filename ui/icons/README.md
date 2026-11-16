@@ -26,7 +26,11 @@ glyphs such as check, x and chevrons.
   Solar's monitor with an arrow cut out of its screen, and screen-share-off
   that monitor with the slash; reply is forward mirrored; search is the
   Linear magnifier with a 2-unit stroke.
-- Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
+- Drawn for Yapfast in Solar's manner: arrow-up-right (Discord's ↗ after a
+  linked account), channels-roles (lines and a
+  magnifier, as Discord's Channels & Roles), megaphone and rules (filled,
+  as Discord's announcement and rules channels), server-discoverable,
+  server-verified and server-partnered (Discord's scalloped badges), gif, hash, id-badge (a card with ID cut out, as Discord marks copying an id), mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
@@ -34,9 +38,8 @@ glyphs such as check, x and chevrons.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): arrow-left, arrow-right, check, chevron-down, chevron-left,
-chevron-right, circle-help, gamepad (gamepad-2), maximize, megaphone,
-message-circle-plus, minimize, minus, plus, restore, rules
-(square-check-big), slash, square and x, and the emoji picker's categories:
+chevron-right, circle-help, gamepad (gamepad-2), maximize,
+message-circle-plus, minimize, minus, plus, restore, slash, square and x, and the emoji picker's categories:
 emoji-recent (clock), emoji-people (smile), emoji-nature (leaf), emoji-food
 (soup), emoji-travel (bike), emoji-objects (lamp), emoji-symbols (heart)
 and emoji-flags (flag). restore is Lucide's copy icon, which the title bar shows for its

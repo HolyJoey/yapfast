@@ -160,10 +160,10 @@ export struct FriendRow {
     game: string,
     /// Their Discord server tag and its badge.
     tag: string, tag-badge: string,
-    /// Their Discord display name style (font and effect ids, 0 for none,
-    /// and two colours), avatar decoration and nameplate pictures.
-    name-font: int, name-effect: int, name-color-a: color, name-color-b: color,
-    decoration: string, nameplate: string,
+    /// Their Discord display name style (its font id, 0 for none),
+    /// avatar decoration and nameplate pictures.
+    name-font: int,
+    decoration: string, nameplate: string, palette: color,
     picture-url: string,
     /// The server voice channel they're in, by room id, with its name and
     /// its server's; the room is empty when they're in none.
@@ -190,7 +190,7 @@ export component FriendItem inherits Rectangle {
     accessible-label: root.friend.name + ", " + root.status + (root.in-voice ? ", in " + root.friend.voice-channel + " in " + root.friend.voice-server : "") + (root.friend.activity != "" ? ", " + root.friend.activity : "") + ", message";
     accessible-action-default => { root.message(); }
     // Rows are ruled apart, as in Discord's list; hovering a row hides its rule.
-    if !pointer.has-hover: Rectangle { x: 10px; y: 0px; width: parent.width - 20px; height: 1px; background: Theme.line; }
+    if !pointer.has-hover: Rectangle { x: 8px; y: 0px; width: parent.width - 16px; height: 1px; background: Theme.line; }
     pointer := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.message(); }
@@ -202,7 +202,7 @@ export component FriendItem inherits Rectangle {
         // The row's contents sit in its pointer area, so the buttons in
         // them take their own clicks while the row stays hovered.
         HorizontalLayout {
-            padding-left: 10px; padding-right: 10px; spacing: 12px;
+            padding-left: 8px; padding-right: 8px; spacing: 12px;
             Middle {
                 Rectangle {
                     width: 32px; height: 32px;
@@ -214,20 +214,23 @@ export component FriendItem inherits Rectangle {
             VerticalLayout {
                 alignment: center; spacing: 1px; horizontal-stretch: 1;
                 HorizontalLayout {
-                    spacing: 6px; alignment: start;
+                    spacing: 6px;
                     StyledName {
                         text: root.friend.name; plain: Theme.text; font-size: 16px; font-weight: 700; overflow: elide;
-                        font-id: root.friend.name-font; effect: root.friend.name-effect;
-                        color-a: root.friend.name-color-a; color-b: root.friend.name-color-b;
+                        font-id: root.friend.name-font;
+                        horizontal-stretch: 0; min-width: 0px;
                     }
                     if root.friend.tag != "": Middle { ServerTag { text: root.friend.tag; badge-url: root.friend.tag-badge; } }
+                    Rectangle { horizontal-stretch: 1; }
                 }
-                // The voice channel they're in, as in Discord's Active Now: in
-                // full in place of "Online", or as a speaker before their status.
+                // In a voice channel, the row says only "In voice", as Discord's
+                // does; Active Now says where. With a status, a speaker comes
+                // before it.
                 if root.in-voice && !root.has-activity: HorizontalLayout {
                     alignment: start;
                     VoiceSpot {
-                        channel: root.friend.voice-channel; server: root.friend.voice-server;
+                        channel: root.friend.voice-channel; server: root.friend.voice-server; words: "In voice";
+                        font-size: 14px;
                         clicked => { root.open-voice(); }
                     }
                 }
@@ -240,20 +243,20 @@ export component FriendItem inherits Rectangle {
                     // As Discord: 🎮 the game • their status.
                     if root.friend.game != "": VerticalLayout {
                         alignment: center;
-                        Image { source: @image-url("icons/gamepad.svg"); width: 15px; height: 15px; colorize: Theme.live; }
+                        Image { source: @image-url("icons/gamepad-filled.svg"); width: 16px; height: 16px; colorize: Theme.live; }
                     }
-                    if root.friend.game != "": Text { text: root.friend.game; color: Theme.muted; font-size: 13px; overflow: elide; }
+                    if root.friend.game != "": Text { text: root.friend.game; color: Theme.muted; font-size: 14px; overflow: elide; }
                     if root.friend.game != "" && (root.friend.activity != "" || root.friend.activity-emoji != ""): Text {
-                        text: "•"; color: Theme.muted; font-size: 13px;
+                        text: "•"; color: Theme.muted; font-size: 14px;
                     }
-                    if root.friend.activity != "" || root.friend.activity-emoji != "": StatusText { text: root.friend.activity; emoji-url: root.friend.activity-emoji; }
+                    if root.friend.activity != "" || root.friend.activity-emoji != "": StatusText { text: root.friend.activity; emoji-url: root.friend.activity-emoji; font-size: 14px; }
                 }
-                if !root.in-voice && !root.has-activity: Text { text: root.status; color: Theme.muted; font-size: 13px; overflow: elide; }
+                if !root.in-voice && !root.has-activity: Text { text: root.status; color: Theme.muted; font-size: 14px; overflow: elide; }
             }
             Middle {
                 IconButton {
                     icon: @image-url("icons/message-circle.svg"); label: "Message"; size: 36px; glyph: 20px; radius: 18px;
-                    fill: Theme.raised; tip-side: 2;
+                    fill: pointer.has-hover ? Theme.sunken : transparent; tip-side: 2;
                     clicked => { root.message(); }
                 }
             }
@@ -261,7 +264,7 @@ export component FriendItem inherits Rectangle {
             Middle {
                 more := IconButton {
                     icon: @image-url("icons/ellipsis-vertical.svg"); label: "More"; size: 36px; glyph: 20px; radius: 18px;
-                    fill: Theme.raised; tip-side: 2;
+                    fill: pointer.has-hover ? Theme.sunken : transparent; tip-side: 2;
                     clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height + 4px); }
                 }
             }
@@ -279,6 +282,8 @@ export struct ActiveNowRow {
     headline: string, since: int,
     /// The app's icon at the card's right, if any.
     icon-url: string,
+    /// Listening to Spotify, whose mark shows at the card's right.
+    spotify: bool,
     /// The card's lower part: its picture and lines. A game with no details
     /// shows its name over how many friends play it.
     large-url: string, small-url: string,
@@ -288,6 +293,11 @@ export struct ActiveNowRow {
     start: int, end: int,
     /// A plain game, with no details: the lower part shows who plays it.
     plain: bool,
+    /// In a voice channel and doing nothing else: the lower part names the
+    /// server and the channel, and goes there.
+    voice-card: bool,
+    /// Their display name style's font id, 0 for none.
+    name-font: int,
     /// The voice channel they're in, as in FriendRow.
     voice-room: string, voice-channel: string, voice-server: string,
 }
@@ -348,12 +358,12 @@ component ActiveNowCard inherits Rectangle {
                 }
                 VerticalLayout {
                     alignment: center; spacing: 1px; horizontal-stretch: 1;
-                    Text { text: root.friend.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; }
+                    StyledName { text: root.friend.name; plain: Theme.text; font-id: root.friend.name-font; font-size: 16px; font-weight: 600; overflow: elide; }
                     if root.friend.headline != "": Text {
                         text: root.friend.headline + (root.friend.since > 0 ? " – " + Ago.since(max(0, ActivityClock.now - root.friend.since)) : "");
                         color: Theme.secondary; font-size: 14px; overflow: elide;
                     }
-                    if root.in-voice: HorizontalLayout {
+                    if root.in-voice && !root.friend.voice-card: HorizontalLayout {
                         alignment: start;
                         VoiceSpot {
                             channel: root.friend.voice-channel; server: root.friend.voice-server;
@@ -364,12 +374,20 @@ component ActiveNowCard inherits Rectangle {
                 if root.friend.icon-url != "": Middle {
                     ActivityPicture { size: 24px; url: root.friend.icon-url; label: root.friend.headline; }
                 }
+                if root.friend.spotify: Middle {
+                    Image { source: @image-url("icons/spotify.svg"); width: 24px; height: 24px; colorize: #1db954; accessible-role: image; accessible-label: "Spotify"; }
+                }
             }
         }
         // What they're doing, in detail, on a darker band.
         if root.lower: Rectangle {
-            background: Theme.chat;
+            background: root.friend.voice-card && lower-pointer.has-hover ? Theme.hover : Theme.chat;
             height: lower-row.preferred-height;
+            lower-pointer := TouchArea {
+                enabled: root.friend.voice-card;
+                mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                clicked => { root.open-voice(); }
+            }
             lower-row := HorizontalLayout {
                 padding: 16px; padding-top: 12px; padding-bottom: 12px; spacing: 12px;
                 if root.friend.large-url != "": Middle {
@@ -491,10 +509,12 @@ export component FriendsScreen inherits Rectangle {
     }
     if root.total > 0: VerticalLayout {
         width: root.width - root.aside; x: 0px;
-        padding: 16px; padding-bottom: 0px; spacing: 8px;
+        // Discord's spacing: the tip's line 47px under the header, the search
+        // 50px under that, then the count and the first row.
+        padding: 16px; padding-bottom: 0px; spacing: 0px;
         // Discord's tip, until it's closed, about where blocked accounts went.
         if root.show-tip: HorizontalLayout {
-            padding-left: 22px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 10px;
+            padding-left: 30px; padding-right: 12px; padding-top: 17px; padding-bottom: 36px; spacing: 10px;
             Middle {
                 Rectangle {
                     width: 20px; height: 20px; border-radius: 10px; background: Theme.secondary;
@@ -520,16 +540,22 @@ export component FriendsScreen inherits Rectangle {
                 }
             }
         }
-        TextField {
-            min-height: 40px; text-size: 16px; pad: 12px; fill: Theme.chat; ring: false; outlined: true;
-            icon: @image-url("icons/search.svg");
-            placeholder: "Search"; label: "Search friends"; text <=> root.filter;
-            edited => { root.filter-edited(); }
+        HorizontalLayout {
+            padding-left: 8px;
+            TextField {
+                min-height: 38px; text-size: 16px; pad: 12px; fill: Theme.chat; ring: false; outlined: true;
+                icon: @image-url("icons/search.svg");
+                placeholder: "Search"; label: "Search friends"; text <=> root.filter;
+                edited => { root.filter-edited(); }
+            }
         }
-        Text {
-            text: (root.all ? "All Friends – " : "Online – ") + root.rows.length;
-            color: Theme.secondary; font-size: 14px; font-weight: 500;
-            accessible-role: none;
+        HorizontalLayout {
+            padding-left: 8px; padding-top: 25px; padding-bottom: 17px;
+            Text {
+                text: (root.all ? "All Friends – " : "Online – ") + root.rows.length;
+                color: Theme.secondary; font-size: 14px; font-weight: 500;
+                accessible-role: none;
+            }
         }
         if root.rows.length == 0: HorizontalLayout {
             padding-left: 8px;
@@ -567,7 +593,7 @@ export component HeaderTab inherits Rectangle {
     /// A count after the text, as on Discord's Pending tab.
     in property <string> badge;
     callback clicked;
-    width: tab-text.preferred-width + 20px + (root.badge != "" ? badge-pill.width + 6px : 0px); height: 28px; border-radius: 6px;
+    width: tab-text.preferred-width + 24px + (root.badge != "" ? badge-pill.width + 6px : 0px); height: 32px; border-radius: 8px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
@@ -578,13 +604,13 @@ export component HeaderTab inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     tab-text := Text {
-        x: 10px;
+        x: 12px;
         text: root.text; font-size: 16px; font-weight: 500;
         color: root.selected || pointer.has-hover ? Theme.text : Theme.secondary;
     }
     badge-pill := Rectangle {
         visible: root.badge != "";
-        x: 10px + tab-text.preferred-width + 6px;
+        x: 12px + tab-text.preferred-width + 6px;
         width: max(16px, badge-text.preferred-width + 8px); height: 16px; border-radius: 8px;
         background: Theme.danger;
         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 12px; font-weight: 700; }

@@ -80,6 +80,11 @@ pub(super) fn command(
                     username: discord.username(&user),
                     avatar: Some(discord.avatar(Some(guild), &user)),
                     color: server.and_then(|server| discord.color(server, &user)),
+                    role_look: crate::discord::role_look(
+                        server.and_then(|server| discord.role_look(server, &user)),
+                    ),
+                    group_icon: None,
+                    booster: false,
                     role: Role::Member,
                     group: None,
                     presence: None,
@@ -137,6 +142,11 @@ pub(super) fn command(
                         username: discord.username(&user),
                         avatar: Some(discord.avatar(Some(&guild), &user)),
                         color: server.and_then(|server| discord.color(server, &user)),
+                    role_look: crate::discord::role_look(
+                        server.and_then(|server| discord.role_look(server, &user)),
+                    ),
+                    group_icon: None,
+                    booster: false,
                         role: Role::Member,
                         group: None,
                         presence: None,
@@ -259,6 +269,79 @@ pub(super) fn command(
             Err(why) => {
                 let _ = events.send(Event::PlacesUsed(Err(why.into())));
             }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::StreamPreview { room, user }) = command {
+        if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, events) = (discord.clone(), events.clone());
+            let (guild, channel) = (guild.to_owned(), channel.to_owned());
+            tokio::spawn(async move {
+                let url = match discord.peek_stream(&guild, &channel, &user).await {
+                    Ok(url) => url,
+                    Err(error) => {
+                        tracing::debug!(%error, "no stream preview");
+                        None
+                    }
+                };
+                let _ = events.send(Event::StreamPreview { room, user, url });
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SendSticker { room, sticker }) = command {
+        if let (Ok(discord), Some((_, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, channel, events) = (discord.clone(), channel.to_owned(), events.clone());
+            tokio::spawn(async move {
+                if let Err(error) = discord.send_sticker(&channel, &sticker).await {
+                    let _ = events.send(Event::RoomError {
+                        room,
+                        message: format!("Couldn't send the sticker: {error}"),
+                    });
+                }
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::MarkUnread { room, after }) = command {
+        if let (Ok(discord), Some((_, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, channel) = (discord.clone(), channel.to_owned());
+            tokio::spawn(async move {
+                if let Err(error) = discord.mark_unread(&channel, &after).await {
+                    tracing::warn!(%error, "couldn't mark a channel unread");
+                }
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::DismissMention(id)) = command {
+        if let Ok(discord) = discord {
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                if let Err(error) = discord.dismiss_mention(&id).await {
+                    tracing::warn!(%error, "couldn't take a mention out of the Inbox");
+                }
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ReactionsUsed) = command {
+        if let Ok(discord) = discord {
+            let (discord, events) = (discord.clone(), events.clone());
+            tokio::spawn(async move {
+                let result = discord
+                    .reactions_used()
+                    .await
+                    .map(|used| {
+                        used.into_iter()
+                            // A custom emoji's id alone doesn't say how to show it.
+                            .filter(|(key, _)| !key.bytes().all(|byte| byte.is_ascii_digit()))
+                            .map(|(key, uses)| (key, uses.total))
+                            .collect()
+                    })
+                    .map_err(|error| error.to_string());
+                let _ = events.send(Event::ReactionsUsed(result));
+            });
         }
         return None;
     }
@@ -449,6 +532,32 @@ pub(super) fn command(
                 });
             }
         }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::Mentions(before)) = command {
+        let Ok(discord) = discord else {
+            let _ = events.send(Event::Mentions(Err(discord
+                .err()
+                .unwrap_or(NOT_DISCORD)
+                .into())));
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let more = before.is_some();
+            let result = match discord.mentions(before.as_deref()).await {
+                Ok(mentions) => Ok(super::render::mention_hits(&discord, &mentions)),
+                Err(error) => {
+                    tracing::warn!(error = format!("{error:#}"), "could not list mentions");
+                    Err(error.to_string())
+                }
+            };
+            let _ = events.send(if more {
+                Event::MoreMentions(result)
+            } else {
+                Event::Mentions(result)
+            });
+        });
         return None;
     }
     if let Command::Discord(DiscordCommand::Pins { room }) = command {

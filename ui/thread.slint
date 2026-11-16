@@ -79,11 +79,14 @@ export component ThreadPanel inherits Rectangle {
     callback link-clicked(string, length, length);
     callback open-link(string);
     callback open-thread(string);
+    /// A forward's source channel was clicked: its room id.
+    callback open-room(string);
     callback retry(string);
     callback cancel-send(string);
     callback reveal-attachment(string, int);
     callback view-image(string, int);
     callback save-attachment(string, int);
+    callback remove-attachment(string, int);
     public function focus-composer() { composer.focus-input(); }
     /// Counts up for the window to focus the composer, after a menu's Reply or Edit.
     in property <int> focus-tick;
@@ -162,8 +165,8 @@ export component ThreadPanel inherits Rectangle {
                     background: self.lit ? Theme.row-hover : transparent;
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
-                        background: Theme.accent.transparentize(0.9);
-                        Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                        background: #f0b2321a;
+                        Rectangle { x: 0px; width: 2px; background: #f0b232; }
                     }
                     row-pointer := TouchArea {
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }
@@ -202,12 +205,16 @@ export component ThreadPanel inherits Rectangle {
                                 }
                                 open-link(link) => { root.open-link(link); }
                                 open-thread(room) => { root.open-thread(room); }
+                                open-room(room) => { root.open-room(room); }
                                 react(item, key) => { root.react(item, key); }
+                                add-reaction(item, x, y, width, height) => { root.open-picker(item, x, y, width, height); }
                                 retry(item) => { root.retry(item); }
                                 cancel-send(item) => { root.cancel-send(item); }
                                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                 view-image(id, index) => { root.view-image(id, index); }
                                 save-attachment(id, index) => { root.save-attachment(id, index); }
+                                edit-message(item) => { root.edit(item); }
+                                remove-attachment(item, index) => { root.remove-attachment(item, index); }
                                 media-menu(id, index, video, x, y) => {
                                     if !message.deleted && message.delivery == "" {
                                         root.active-item = message.item;
@@ -236,11 +243,6 @@ export component ThreadPanel inherits Rectangle {
                                 spacing: 0px;
                                 if message.can-react && root.composer-enabled: HorizontalLayout {
                                     spacing: 0px;
-                                    for cell[slot] in root.bar-reactions: EmojiButton {
-                                        visible: slot < 2; width: slot < 2 ? 32px : 0px;
-                                        emoji: cell; font: root.emoji-font;
-                                        clicked => { root.react(message.item, cell.key); }
-                                    }
                                     IconButton {
                                         icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
                                         clicked => { root.open-picker(message.item, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }

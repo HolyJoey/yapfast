@@ -233,9 +233,12 @@ dialog shows them as they were when it opened.
 Where the account may manage channels (`MANAGE_CHANNELS`, on the server for one
 made there, on the category for one made in it, on the channel for the rest),
 Create channel and Create category make one with `POST /guilds/{id}/channels`
+(a category heading shows Discord's "+", which makes one in it)
 and a body of its `name`, `type` (0 text, 2 voice, 4 category), `parent_id` for
 a category, and for text its `topic`, `rate_limit_per_user` and `nsfw`. Edit
-channel opens the channel's or category's [settings](server-settings.md#channel-settings).
+channel opens the channel's or category's [settings](server-settings.md#channel-settings),
+as do the gear on the open or pointed-at channel's row and the Edit Channel
+button under a channel's welcome, where the account may change it.
 Duplicate channel reads the channel and makes another with its type, category,
 permission overwrites, topic, age restriction, slowmode and voice settings
 under the name given, as Discord's client does. Delete channel uses `DELETE
@@ -245,6 +248,22 @@ CHANNEL_CREATE, UPDATE and DELETE, which the service already applies to the one
 server they name, so the sidebar rebuilds that server's rows and keeps the
 others. Names are 1 to 100 characters and topics up to 1024, checked before
 asking.
+
+### Voice channels in the list
+
+A voice channel with people in it has a green speaker, as in Discord, and
+lists them under it with their server tags and display name fonts. On its
+right it says how many are in it of how many it holds, from the channel's
+`user_limit`, or with no limit how long its session has been going. Discord
+says when sessions began only when asked: for a server newly on screen
+Yapfast sends op 43 (Request Channel Info) with `{"guild_id", "fields":
+["voice_start_time"]}`, CHANNEL_INFO answers with each channel's
+`voice_start_time` in Unix seconds, and VOICE_CHANNEL_START_TIME_UPDATE
+follows as a session starts or ends (`null`).
+
+A server with anyone in its voice channels is marked at its icon's top right
+in the rail: a speaker, or a screen while one of them shares theirs. A voice
+channel's chat doesn't mark the channel or its server unread.
 
 ## A channel's menu
 

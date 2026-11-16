@@ -10,6 +10,10 @@ use crate::settings::{Field, fields, varint};
 
 const GUILD_AND_CHANNEL_FRECENCY: u64 = 12;
 const GUILD_AND_CHANNELS: u64 = 1;
+/// `FrecencyUserSettings.emoji_reaction_frecency`, an `EmojiFrecency`
+/// whose `emojis` map a Unicode emoji, or a custom emoji's id, to its uses.
+const EMOJI_REACTION_FRECENCY: u64 = 13;
+const EMOJIS: u64 = 1;
 /// A map entry's key and value.
 const KEY: u64 = 1;
 const VALUE: u64 = 2;
@@ -46,31 +50,69 @@ pub fn read_places(encoded: &str) -> Option<Vec<(String, Uses)>> {
         for (number, value) in fields(entry) {
             match (number, value) {
                 (KEY, Field::Fixed64(key)) => id = Some(key),
-                (VALUE, Field::Bytes(item)) => {
-                    for (number, value) in fields(item) {
-                        match (number, value) {
-                            (TOTAL_USES, Field::Varint(total)) => uses.total = total as u32,
-                            (RECENT_USES, Field::Varint(at)) => uses.recent.push(at),
-                            // Packed, as proto3 writes a repeated number.
-                            (RECENT_USES, Field::Bytes(mut packed)) => {
-                                while let Some(at) = varint(&mut packed) {
-                                    uses.recent.push(at);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                (VALUE, Field::Bytes(item)) => uses = read_uses(item),
                 _ => {}
             }
         }
-        uses.recent.retain(|at| *at > 0);
-        uses.recent.sort_unstable();
         if let Some(id) = id {
             read.push((id.to_string(), uses));
         }
     }
     Some(read)
+}
+
+/// The emoji this account reacts with, by Unicode emoji or custom emoji
+/// id, as `read_places` reads places; `None` when the settings don't say.
+pub fn read_reactions(encoded: &str) -> Option<Vec<(String, Uses)>> {
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    let reactions = fields(&data).find_map(|(number, value)| match value {
+        Field::Bytes(bytes) if number == EMOJI_REACTION_FRECENCY => Some(bytes),
+        _ => None,
+    })?;
+    let mut read = Vec::new();
+    for (number, value) in fields(reactions) {
+        let (EMOJIS, Field::Bytes(entry)) = (number, value) else {
+            continue;
+        };
+        let mut key = None;
+        let mut uses = Uses::default();
+        for (number, value) in fields(entry) {
+            match (number, value) {
+                (KEY, Field::Bytes(text)) => {
+                    key = std::str::from_utf8(text).ok().map(str::to_owned);
+                }
+                (VALUE, Field::Bytes(item)) => uses = read_uses(item),
+                _ => {}
+            }
+        }
+        if let Some(key) = key.filter(|key| !key.is_empty()) {
+            read.push((key, uses));
+        }
+    }
+    Some(read)
+}
+
+/// A `FrecencyItem`: its uses in all, and when lately, oldest first.
+fn read_uses(item: &[u8]) -> Uses {
+    let mut uses = Uses::default();
+    for (number, value) in fields(item) {
+        match (number, value) {
+            (TOTAL_USES, Field::Varint(total)) => uses.total = total as u32,
+            (RECENT_USES, Field::Varint(at)) => uses.recent.push(at),
+            // Packed, as proto3 writes a repeated number.
+            (RECENT_USES, Field::Bytes(mut packed)) => {
+                while let Some(at) = varint(&mut packed) {
+                    uses.recent.push(at);
+                }
+            }
+            _ => {}
+        }
+    }
+    uses.recent.retain(|at| *at > 0);
+    uses.recent.sort_unstable();
+    uses
 }
 
 #[cfg(test)]
@@ -105,5 +147,23 @@ mod tests {
             )])
         );
         assert_eq!(read_places(""), None, "an update without them");
+    }
+
+    #[test]
+    fn reads_the_reactions_used() {
+        let item = vec![(TOTAL_USES << 3) as u8, 42];
+        let mut entry = Vec::new();
+        put_bytes(&mut entry, KEY, "💀".as_bytes());
+        put_bytes(&mut entry, VALUE, &item);
+        let mut map = Vec::new();
+        put_bytes(&mut map, EMOJIS, &entry);
+        let mut settings = Vec::new();
+        put_bytes(&mut settings, EMOJI_REACTION_FRECENCY, &map);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
+        assert_eq!(
+            read_reactions(&encoded),
+            Some(vec![("💀".into(), Uses { total: 42, recent: vec![] })])
+        );
+        assert_eq!(read_reactions(""), None);
     }
 }

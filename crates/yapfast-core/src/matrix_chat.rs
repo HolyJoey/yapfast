@@ -608,7 +608,7 @@ impl Matrix {
             | Command::EndPoll { .. }
             | Command::Voters { .. } => {}
             // Yapfast pins only Discord's messages.
-            Command::Pin { .. } => {}
+            Command::Pin { .. } | Command::KeepAttachments { .. } => {}
             // Matrix's attachments have no address, which copying asks for.
             Command::CopyAttachment { .. } => {}
             Command::Delete { room, item } => {
@@ -1072,6 +1072,9 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                 let mut members: Vec<_> = members
                     .iter()
                     .map(|member| ChatMember {
+                        role_look: None,
+                        group_icon: None,
+                        booster: false,
                         id: member.user_id().to_string(),
                         name: member
                             .display_name()
@@ -1146,6 +1149,11 @@ async fn room_index(client: &Client) -> RoomIndex {
             folder: None,
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         });
     }
@@ -1200,10 +1208,15 @@ async fn room_index(client: &Client) -> RoomIndex {
             incoming: false,
             avatar: None,
             faces: Vec::new(),
+            tag: None,
+            user_limit: 0,
+            voice_since: 0,
             upload_limit: MAX_ATTACHMENT_BYTES,
             presence: None,
             activity: None,
             activities: Default::default(),
+            private: false,
+            thread_owner: None,
             parent: None,
             forum: false,
             announcement: false,
@@ -2035,6 +2048,8 @@ async fn publish_timeline(
                         color: None,
                         tag: None,
                         attachments: false,
+                        forwarded: false,
+                        files: false,
                         ping: true,
                         body: summary(&embedded.content),
                         item,
@@ -2046,6 +2061,8 @@ async fn publish_timeline(
                     color: None,
                     tag: None,
                     attachments: false,
+                    forwarded: false,
+                    files: false,
                     ping: true,
                     body: "The original message could not be loaded.".into(),
                     item,
@@ -2065,6 +2082,8 @@ async fn publish_timeline(
                         color: None,
                         tag: None,
                         attachments: false,
+                        forwarded: false,
+                        files: false,
                         ping: true,
                         body: "Loading the original message...".into(),
                         item,

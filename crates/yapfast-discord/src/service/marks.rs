@@ -44,7 +44,8 @@ impl ServerMarks {
         // A voice channel's chat is read as a text channel is.
         for channel in server.text_channels.iter().chain(&server.voice_channels) {
             let access = server.access(channel, me, roles);
-            let (muted, unread, mentions) = unreads.channel(&server.id, channel, access);
+            let (muted, unread, mentions) =
+                unreads.channel(&server.id, channel, access, server.community);
             channels.push(ChannelMarks {
                 access,
                 mention_everyone: server.may_mention_everyone(channel, me, roles),
@@ -58,7 +59,8 @@ impl ServerMarks {
         }
         for thread in &server.threads {
             let access = server.access(thread, me, roles);
-            let (muted, unread, mentions) = unreads.channel(&server.id, thread, access);
+            let (muted, unread, mentions) =
+                unreads.channel(&server.id, thread, access, server.community);
             channels.push(ChannelMarks {
                 access,
                 mention_everyone: server.may_mention_everyone(thread, me, roles),
@@ -97,7 +99,7 @@ impl ServerMarks {
         for (at, (channel, was)) in channels {
             let mut marks = *was;
             (marks.muted, marks.unread, marks.mentions) =
-                unreads.channel(&server.id, channel, was.access);
+                unreads.channel(&server.id, channel, was.access, server.community);
             marks.last_read = unreads.last_read(&server.id, &channel.id);
             marks.quiet = quiet(channel, now);
             marks.opened = channel.thread.is_some() && unreads.opened(&channel.id);

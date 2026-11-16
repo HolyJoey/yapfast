@@ -62,6 +62,11 @@ fn connected() -> Application {
             folder: None,
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         }],
     }));
@@ -135,6 +140,11 @@ fn locked_channels_show_without_asking_for_their_messages() {
             folder: None,
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         }],
     }));
@@ -286,6 +296,9 @@ fn members_belong_to_the_selected_text_room() {
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     assert!(app.state.lists_members() && app.state.members.is_none());
     let member = ChatMember {
+        role_look: None,
+        group_icon: None,
+        booster: false,
         id: "@bob:test".into(),
         name: "Bob".into(),
         username: None,
@@ -967,6 +980,46 @@ fn pinning_a_message_takes_leave_and_unpins_a_pinned_one() {
             .as_slice(),
         [Effect::Backend(Command::Pin { pinned: false, .. })]
     ));
+}
+
+#[test]
+fn removing_a_file_keeps_the_others_or_asks_to_delete_what_would_be_empty() {
+    let mut app = connected();
+    let file = |name: &str| chat::Attachment {
+        name: name.into(),
+        size: None,
+        image: false,
+        dimensions: None,
+        preview: None,
+        preview_failed: false,
+        placement: chat::Placement::Message,
+        gif: None,
+        spoiler: false,
+        video: false,
+        url: Some(format!("https://cdn.discordapp.com/attachments/1/2{name}/x").into()),
+    };
+    let mut two = message("e:$two", true);
+    two.body.clear();
+    two.attachments = vec![file("1"), file("2")];
+    let mut one = message("e:$one", true);
+    one.body.clear();
+    one.attachments = vec![file("3")];
+    let mut theirs = message("e:$bob", false);
+    theirs.attachments = vec![file("4")];
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![two, one, theirs]),
+    });
+    assert!(matches!(
+        app.dispatch(Action::RemoveAttachment { item: "e:$two".into(), index: 0 }).as_slice(),
+        [Effect::Backend(Command::KeepAttachments { item, keep, .. })]
+            if item == "e:$two" && keep.len() == 1 && keep[0].contains("/22/")
+    ));
+    assert!(app.dispatch(Action::RemoveAttachment { item: "e:$one".into(), index: 0 }).is_empty());
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$one"), "nothing would be left");
+    app.dispatch(Action::CancelDelete);
+    assert!(app.dispatch(Action::RemoveAttachment { item: "e:$bob".into(), index: 0 }).is_empty());
+    assert!(app.state.confirm_delete.is_none(), "only one's own");
 }
 
 #[test]
@@ -2908,6 +2961,8 @@ fn asks_once_for_the_pictures_on_screen() {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                tag: None,
+                game: None,
                 server_muted: false,
                 server_deafened: false,
             }],
@@ -2958,6 +3013,9 @@ fn asks_once_for_the_pictures_on_screen() {
 
 fn member(id: &str, name: &str) -> ChatMember {
     ChatMember {
+        role_look: None,
+        group_icon: None,
+        booster: false,
         id: id.into(),
         name: name.into(),
         username: None,
@@ -3160,6 +3218,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
         user_id: Some("1".into()),
         // Nitro, for the animated emoji.
         account: Some(Account {
+            username: String::new(),
             name: "Alice".into(),
             avatar: String::new(),
             premium_type: 2,
@@ -3857,6 +3916,9 @@ fn matrix_profiles_show_what_the_member_list_knows() {
     app.apply(Event::Members {
         room: "general".into(),
         members: Ok(vec![ChatMember {
+            role_look: None,
+            group_icon: None,
+            booster: false,
             id: "@bob:test".into(),
             name: "Bob".into(),
             username: None,
@@ -4398,6 +4460,8 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         streaming: false,
         video: false,
         elsewhere: false,
+        tag: None,
+        game: None,
         server_muted: false,
         server_deafened: false,
     };
@@ -4472,6 +4536,12 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         effects.last(),
         Some(Effect::Backend(Command::Voice(voice::Command::Join(id)))) if *id == dm
     ));
+    // Discord's green video button answers with the camera on.
+    let mut app = Application::default();
+    app.apply(discord_event(snapshot(vec![person("1", "Me")], vec![person("2", "Ann")])));
+    let effects = app.dispatch(Action::AcceptCallWithVideo(dm.clone()));
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Backend(Command::Voice(voice::Command::Join(_))))));
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Backend(Command::Voice(voice::Command::Video(true))))));
 }
 
 #[test]
@@ -4487,6 +4557,8 @@ fn do_not_disturb_shows_a_call_without_notifying() {
         streaming: false,
         video: false,
         elsewhere: false,
+        tag: None,
+        game: None,
         server_muted: false,
         server_deafened: false,
     };
@@ -5449,6 +5521,11 @@ fn a_matrix_room_divider_follows_its_read_receipt_once_loaded() {
             folder: None,
             hide_muted: false,
             community: false,
+            banner: None,
+            boost_tier: 0,
+            badge: Default::default(),
+            boost_bar: None,
+            onboarding: false,
             pinned: Vec::new(),
         }],
     }));
@@ -5823,6 +5900,103 @@ fn a_dms_pins_load_when_shown_and_close_with_the_conversation() {
     app.dispatch(Action::ShowPins(true));
     app.dispatch(Action::SelectRoom("discord:@me:31".into()));
     assert!(app.state.pins.is_none(), "another conversation closes them");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_edit_keeps_the_channels_its_message_links() {
+    let app = discord_server();
+    let general = app
+        .state
+        .rooms
+        .iter()
+        .find(|room| room.id.starts_with("discord:10:") && room.parent.is_none())
+        .unwrap();
+    let (_, channel) = crate::discord::parse_room(&general.id).unwrap();
+    let shown = format!("see #\u{a0}{} and #{}", general.name, general.name);
+    assert_eq!(
+        app.state.wire_channels(&general.id, &shown),
+        format!("see <#{channel}> and #{}", general.name),
+        "only the chip as a message shows it"
+    );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn mark_unread_reads_up_to_the_message_before_and_stays_unread_while_open() {
+    let mut app = discord_dms(vec![]);
+    let dm = "discord:@me:30".to_owned();
+    app.dispatch(Action::SelectRoom(dm.clone()));
+    app.apply(Event::Timeline {
+        room: dm.clone(),
+        messages: timeline(vec![message("d:100", false), message("d:105", false)]),
+    });
+    assert!(matches!(
+        app.dispatch(Action::MarkUnread("d:105".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::MarkUnread { room, after }))]
+            if *room == dm && after == "100"
+    ));
+    assert!(matches!(
+        app.dispatch(Action::MarkUnread("d:100".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::MarkUnread { after, .. }))] if after == "99"
+    ), "the first loaded: the snowflake before it");
+    assert_eq!(app.marked_unread.as_deref(), Some(dm.as_str()));
+    app.dispatch(Action::SelectRoom("discord:@me:31".into()));
+    assert!(app.marked_unread.is_none(), "leaving lets it be read again");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_inbox_lists_mentions_while_open() {
+    let mut app = discord_dms(vec![]);
+    app.state.discord_online = true;
+    assert!(matches!(
+        app.dispatch(Action::ShowInbox(true)).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Mentions(None)))]
+    ));
+    assert_eq!(app.state.inbox.as_ref().unwrap().hits, None, "on their way");
+    app.apply(Event::Mentions(Ok(vec![crate::chat::SearchHit {
+        room: "discord:10:11".into(),
+        message: message("d:9", false),
+    }])));
+    let hits = app.state.inbox.as_ref().unwrap().hits.clone();
+    assert_eq!(hits.unwrap().unwrap()[0].room, "discord:10:11");
+    // Its ✓ takes it out at once, and out of Discord's.
+    assert!(matches!(
+        app.dispatch(Action::DismissMention("d:9".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::DismissMention(id)))] if id == "9"
+    ));
+    assert_eq!(app.state.inbox.as_ref().unwrap().hits, Some(Ok(vec![])));
+    assert!(app.dispatch(Action::DismissMention("d:9".into())).is_empty(), "gone already");
+    // A full page may have older ones, asked for after the last.
+    let page: Vec<_> = (100..100 + crate::application::MENTIONS_PAGE)
+        .map(|n| crate::chat::SearchHit {
+            room: "discord:10:11".into(),
+            message: message(&format!("d:{n}"), false),
+        })
+        .collect();
+    app.apply(Event::Mentions(Ok(page)));
+    let last = 100 + crate::application::MENTIONS_PAGE - 1;
+    assert!(matches!(
+        app.dispatch(Action::MoreMentions).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Mentions(Some(before))))] if *before == last.to_string()
+    ));
+    assert!(app.dispatch(Action::MoreMentions).is_empty(), "one page at a time");
+    app.apply(Event::MoreMentions(Ok(vec![crate::chat::SearchHit {
+        room: "discord:10:11".into(),
+        message: message("d:5", false),
+    }])));
+    let inbox = app.state.inbox.as_ref().unwrap();
+    assert!(!inbox.more && !inbox.loading_more, "a short page is the last");
+    assert_eq!(inbox.hits.as_ref().unwrap().as_ref().unwrap().len(), crate::application::MENTIONS_PAGE + 1);
+    app.dispatch(Action::ShowInbox(false));
+    assert!(app.state.inbox.is_none());
+    app.apply(Event::Mentions(Ok(vec![])));
+    assert!(app.state.inbox.is_none(), "an answer after closing opens nothing");
+
+    app.state.discord_online = false;
+    assert!(app.dispatch(Action::ShowInbox(true)).is_empty(), "offline");
+    assert!(app.state.inbox.is_none());
 }
 
 #[test]
@@ -6359,6 +6533,14 @@ fn a_server_search_stays_open_in_its_channels_and_jumps_into_them() {
         [.., Effect::Backend(Command::Around { room, item })]
             if room == "discord:10:13" && item == "d:8"
     ));
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Backend(Command::Around { .. })))
+            .count(),
+        1,
+        "only the result's window loads: the last read one's would end the jump"
+    );
     assert!(
         app.state.search_shown().is_some(),
         "the server's search stays"
@@ -6612,7 +6794,7 @@ fn a_community_server_lists_only_the_channels_followed_as_discords_client_does()
     );
     let choices = app.menu_choices("discord:10");
     let at = choices.iter().position(|choice| *choice == ShowAllChannels);
-    assert_eq!(at.map(|at| choices[at + 1]), Some(HideMuted));
+    assert_eq!(at.map(|at| choices[at - 1]), Some(HideMuted));
     assert!(app.header_choices("discord:10").contains(&ShowAllChannels));
     assert_eq!(
         follow(&mut app, "discord:10:11", true),
@@ -6834,11 +7016,10 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             MuteServer,
             ServerNotifications,
             HideMuted,
+            EditServerProfile,
             // Her role manages roles.
             ServerSettings,
-            EditServerProfile,
             LeaveServer,
-            CopyLink,
             CopyId
         ]
     );
@@ -6849,7 +7030,8 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "the header's dropdown lists the menu's choices in its own order"
     );
@@ -6889,8 +7071,8 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
         status: yapfast_discord::service::Status::Connecting,
         ..yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap())
     }));
-    assert_eq!(app.menu_choices("discord:10"), [MarkRead, CopyLink, CopyId]);
-    assert!(app.header_choices("discord:10").is_empty());
+    assert_eq!(app.menu_choices("discord:10"), [MarkRead, CopyId]);
+    assert_eq!(app.header_choices("discord:10"), [CopyId]);
 }
 
 #[test]
@@ -7097,7 +7279,7 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     });
     assert_eq!(
         app.menu_choices("discord:10")[6..],
-        [CreateChannel, CreateCategory, LeaveServer, CopyLink, CopyId]
+        [CreateChannel, CreateCategory, LeaveServer, CopyId]
     );
     assert_eq!(
         app.header_choices("discord:10"),
@@ -7108,7 +7290,8 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ]
     );
     assert_eq!(
@@ -7210,6 +7393,19 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     assert_eq!(
         (dialog.name.as_str(), dialog.kind),
         ("Talk", ChannelKind::Voice)
+    );
+    app.dispatch(Action::CloseChannelDialog);
+
+    // From a category heading's "+": one in that category.
+    app.dispatch(Action::NewChannel {
+        place: "discord:10:4".into(),
+        kind: ChannelKind::Text,
+    });
+    assert_eq!(
+        app.state.channel_dialog.as_ref().unwrap().ask,
+        ChannelAsk::Create {
+            parent: Some("discord:10:4".into())
+        }
     );
     app.dispatch(Action::CloseChannelDialog);
 
@@ -7390,7 +7586,7 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     let choices = app.menu_choices("discord:10");
     let at = |choice| choices.iter().position(|known| *known == choice);
     assert!(
-        at(HideMuted) < at(EditServerProfile) && at(EditServerProfile) < at(CopyLink),
+        at(HideMuted) < at(EditServerProfile) && at(EditServerProfile) < at(CopyId),
         "anyone may, though she may not change her nickname"
     );
     assert_eq!(
@@ -7400,7 +7596,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "as Discord's dropdown orders them"
     );
@@ -7499,6 +7696,7 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     });
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
         premium_type: 2,
@@ -7724,6 +7922,7 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
     // which Discord shows only without.
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: "alice.png".into(),
         premium_type: 2,
@@ -9822,3 +10021,30 @@ mod ownership;
 mod people;
 #[cfg(feature = "discord")]
 mod server_settings;
+
+#[test]
+fn a_streams_preview_is_kept_a_minute_rather_than_asked_again() {
+    let mut app = discord_server();
+    let peek = || Action::PeekStream(Some(("discord:10:14".into(), "7".into())));
+    let asks = |effects: &[Effect]| {
+        effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Backend(Command::Discord(DiscordCommand::StreamPreview { .. }))
+            )
+        })
+    };
+    assert!(asks(&app.dispatch(peek())));
+    assert!(!app.state.stream_peek.as_ref().unwrap().answered);
+    app.apply(Event::StreamPreview {
+        room: "discord:10:14".into(),
+        user: "7".into(),
+        url: Some("https://media/preview.jpg".into()),
+    });
+    app.dispatch(Action::PeekStream(None));
+    assert!(app.state.stream_peek.is_none());
+    assert!(!asks(&app.dispatch(peek())), "Discord isn't asked again so soon");
+    let shown = app.state.stream_peek.as_ref().unwrap();
+    assert!(shown.answered);
+    assert_eq!(shown.url.as_deref(), Some("https://media/preview.jpg"));
+}

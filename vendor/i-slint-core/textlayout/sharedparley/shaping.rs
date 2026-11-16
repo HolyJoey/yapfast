@@ -233,8 +233,8 @@ impl LayoutWithoutLineBreaksBuilder {
                             span.range,
                         );
                     }
+                    // Yapfast: a link is told by its colour alone, as in Discord.
                     Style::Link => {
-                        builder.push(parley::StyleProperty::Underline(true), span.range.clone());
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: None,

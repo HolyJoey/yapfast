@@ -126,8 +126,10 @@ impl Application {
     pub(super) fn mark_discord_read(&self) -> Vec<Effect> {
         match self.state.selected_room() {
             Some(room)
-                // A window of older messages doesn't read the newest.
+                // A window of older messages doesn't read the newest, nor
+                // does a channel marked unread by hand.
                 if self.state.room_ready
+                    && self.marked_unread.as_ref() != Some(&room.id)
                     && !self.state.detached
                     && (room.forum || self.state.reading && self.read_marker.is_none())
                     && room.network == Network::Discord
@@ -404,6 +406,9 @@ impl Application {
         snapshot: Arc<yapfast_discord::service::Snapshot>,
     ) -> Vec<Effect> {
         self.state.discord_online = snapshot.status == yapfast_discord::service::Status::Online;
+        // Once online, Discord says which reactions the account uses most.
+        let ask_reactions = self.state.discord_online && !self.state.preview && !self.reactions_asked;
+        self.reactions_asked |= ask_reactions;
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
         {
@@ -411,6 +416,8 @@ impl Application {
             self.state.online = self.state.discord_online;
             if let Some(account) = &snapshot.account {
                 self.state.account_name = Some(account.name.clone());
+                self.state.account_username =
+                    Some(account.username.clone()).filter(|name| !name.is_empty());
                 self.state.account_avatar = Some(account.avatar.clone());
             }
             self.state.account_status = Some(match &snapshot.status {
@@ -535,6 +542,9 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
+        if ask_reactions {
+            effects.push(Effect::Backend(Command::Discord(DiscordCommand::ReactionsUsed)));
+        }
         effects
     }
 

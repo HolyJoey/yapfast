@@ -14,8 +14,12 @@ their custom status or what they're doing under the name. As in Discord's
 DM list, a presence comes from friends' presences, and for anyone in a DM or
 group DM also from the servers the account shares with them:
 READY_SUPPLEMENTAL's `merged_presences`, a server's PRESENCE_UPDATE and
-member list rows. Yapfast keeps servers' presences only for people in a DM,
-not for every member (`Tracker::in_private`). Someone with none shows the
+member list rows. Yapfast keeps servers' presences only for friends and
+people in a DM, not for every member (`Tracker::keeps_presence`). Of a
+person's presences from these sources, the newest by
+`processed_at_timestamp` shows, and of two as new the one with more
+activities, as Discord's client picks; one without a time, such as a member
+list row's, counts as newest. Someone with none shows the
 grey offline ring. These follow PRESENCE_UPDATE live. The header of an open
 one-to-one DM shows the same dot on their avatar, and their custom status or
 what they're doing in a bubble beside the name. A group DM

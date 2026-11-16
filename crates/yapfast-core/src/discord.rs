@@ -66,6 +66,10 @@ const BANNER_SIZE: (u32, u32) = (600, 240);
 /// The size Discord serves them at; a larger one is shrunk to it.
 #[cfg(feature = "discord")]
 const PICTURE_SIZE: u32 = 128;
+/// A stream's preview, at the size its streamer's app uploads it (512 by
+/// 288), which Discord's popout shows sharp at 248 by 140, not an icon's.
+#[cfg(feature = "discord")]
+const STREAM_PREVIEW_SIZE: (u32, u32) = (512, 288);
 /// Pictures downloading at once. They have turns of their own, apart from
 /// the previews' (see `Api::download`), so neither waits behind the other.
 #[cfg(feature = "discord")]
@@ -212,6 +216,8 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        tag: name_tag(member.tag.clone()).map(Box::new),
+        game: member.game.clone().map(Box::new),
     }
 }
 
@@ -650,6 +656,9 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         category_id: None,
         request: dm.request,
         person: dm.person.clone(),
+        tag: name_tag(dm.tag.clone()).map(Box::new),
+        user_limit: 0,
+        voice_since: 0,
         people: in_voice(snapshot, &dm.id),
         ringing: dm
             .ringing
@@ -664,6 +673,8 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         presence: dm.presence.map(presence),
         activity: dm.activity.clone(),
         activities: dm.activities.clone(),
+        private: false,
+        thread_owner: None,
         parent: None,
         forum: false,
         announcement: false,
@@ -804,6 +815,9 @@ fn server_rooms(
                 incoming: false,
                 avatar: None,
                 faces: Vec::new(),
+                tag: None,
+                user_limit: channel.user_limit,
+                voice_since: snapshot.voice_starts.get(&channel.id).copied().unwrap_or(0),
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -811,6 +825,8 @@ fn server_rooms(
                     premium,
                     Some(server.premium_tier),
                 ),
+                private: is_private(server, channel),
+                thread_owner: None,
                 parent: None,
                 forum: false,
                 announcement: false,
@@ -853,6 +869,9 @@ fn server_rooms(
                 incoming: false,
                 avatar: None,
                 faces: Vec::new(),
+                tag: None,
+                user_limit: 0,
+                voice_since: 0,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -860,6 +879,8 @@ fn server_rooms(
                     premium,
                     Some(server.premium_tier),
                 ),
+                private: is_private(server, channel),
+                thread_owner: None,
                 parent: None,
                 forum: channel.forum.is_some(),
                 announcement: channel.announcement,
@@ -889,9 +910,31 @@ fn server_rooms(
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
+        banner: server.banner.clone(),
+        boost_tier: server.premium_tier,
+        badge: if server.verified && !server.partnered {
+            chat::ServerBadge::Verified
+        } else if server.partnered {
+            chat::ServerBadge::Partnered
+        } else if server.discoverable {
+            chat::ServerBadge::Discoverable
+        } else {
+            chat::ServerBadge::None
+        },
+        boost_bar: server.boost_bar.then_some(server.boosts),
+        onboarding: server.onboarding,
         pinned,
     };
     (rooms, server)
+}
+
+/// A channel @everyone can't see, as Discord's list marks it with a lock:
+/// what a member without roles may do there, worked out as Discord does.
+#[cfg(feature = "discord")]
+fn is_private(server: &yapfast_discord::ready::Server, channel: &yapfast_discord::ready::Channel) -> bool {
+    use yapfast_discord::ready::permission::VIEW_CHANNEL;
+    // No one's id: neither the owner's nor any member's overwrite applies.
+    server.channel_permissions(channel, "0", &[]) & VIEW_CHANNEL == 0
 }
 
 /// A thread as it lists under `parent`, its channel's room.
@@ -932,10 +975,19 @@ fn thread_room(
         incoming: false,
         avatar: None,
         faces: Vec::new(),
+        tag: None,
+        user_limit: 0,
+        voice_since: 0,
         presence: None,
         activity: None,
         activities: Default::default(),
         upload_limit: yapfast_discord::api::upload_limit(premium, Some(server.premium_tier)),
+        private: false,
+        thread_owner: thread
+            .channel
+            .thread
+            .as_ref()
+            .and_then(|thread| thread.owner.clone()),
         parent: Some(parent.id.clone()),
         forum: false,
         announcement: false,
@@ -1111,6 +1163,8 @@ impl Pictures {
                 };
                 let (width, height) = if url.contains("/banners/") {
                     BANNER_SIZE
+                } else if url.contains("/streams/") || url.contains("stream-preview") {
+                    STREAM_PREVIEW_SIZE
                 } else {
                     (PICTURE_SIZE, PICTURE_SIZE)
                 };
@@ -1518,6 +1572,8 @@ mod tests {
             streaming: false,
             video: false,
             elsewhere: false,
+            tag: None,
+            game: None,
             server_muted: false,
             server_deafened: false,
         };
@@ -1688,6 +1744,8 @@ mod tests {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                tag: None,
+                game: None,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -1736,6 +1794,8 @@ mod tests {
                     streaming: true,
                     video: false,
                     elsewhere: false,
+                    tag: None,
+                    game: None,
                     server_muted: false,
                     server_deafened: false,
                 }],
@@ -1786,6 +1846,17 @@ mod tests {
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
     }
+}
+
+/// What a member's Discord roles add to their name, as the core shows it.
+#[cfg(feature = "discord")]
+pub fn role_look(look: Option<yapfast_discord::ready::RoleLook>) -> Option<Box<chat::RoleLook>> {
+    look.map(|look| {
+        Box::new(chat::RoleLook {
+            second: look.second,
+            icon: look.icon,
+        })
+    })
 }
 
 /// A Discord server tag as the core shows it.

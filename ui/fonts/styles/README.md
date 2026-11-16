@@ -23,5 +23,9 @@ Chicle, Orbitron and New Rocker have Reserved Font Names, which a modified
 version may not use, so their modified versions here are renamed after
 Discord's names for the styles: Jellybean, Mainframe and Headbang.
 
-7 Neo Castel (Medieval) and 10 Sinistre (Vampyre) are Velvetyne's and not
-included: names in them show in the UI's typeface.
+7 Neo Castel (Medieval) and 10 Sinistre (Vampyre) aren't here: no licence
+that allows passing them on could be checked. The Discord build downloads
+the web font files Discord's own client loads for them, once, as it does
+gg sans, checks them against their SHA-256 and keeps them in its data
+folder; see `crates/yapfast-discord/src/ui_font.rs`. Until they're there,
+names in them show in the UI's typeface.

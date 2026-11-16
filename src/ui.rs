@@ -142,6 +142,9 @@ pub fn run(
         .context("could not select the Slint desktop backend")?;
     slint::set_xdg_app_id(crate::icon::APP_ID).context("could not set Yapfast's app ID")?;
     let font = crate::ui_font::family(&root);
+    // Discord's own sounds play from where they're downloaded.
+    #[cfg(feature = "discord")]
+    yapfast_core::sounds::use_discord_sounds(root.join(yapfast_core::yapfast_discord::ui_font::SOUNDS));
     let gpu = plan.renderer == graphics::Renderer::Gpu;
     let failed = |error: slint::PlatformError, context: &'static str| -> Result<Exit> {
         let reason = error.to_string();
@@ -1319,6 +1322,12 @@ impl Layout {
             row.time_styled = slint::StyledText::from_plain_text(&sent);
             row.time = sent.into();
         }
+        // A forward's source says when the original was sent, as its time does.
+        if let Some(source) = &message.forward_source {
+            let now = yapfast_core::clock::now_ms() / 1000;
+            let sent = yapfast_core::clock::sent(source.timestamp, now, self.twelve_hour_clock, false);
+            row.forward_source = format!("# {}  •  {sent}", source.name).into();
+        }
         if !self.link_previews.unwrap_or(true) {
             row.embeds = ModelRc::default();
             // A bot's card can be the whole message; say it's there.
@@ -1376,6 +1385,8 @@ struct Models {
     /// The open DM's pinned messages, what its search found, and the
     /// friends its picker offers.
     pins: Rc<VecModel<FoundRow>>,
+    /// The Inbox's mentions.
+    inbox: Rc<VecModel<FoundRow>>,
     /// The open channel's list of its threads.
     thread_rows: Rc<VecModel<ThreadRow>>,
     /// The open forum's posts.
@@ -1450,6 +1461,7 @@ impl Models {
         window.set_mentions(ModelRc::from(self.mentions.clone()));
         window.set_new_dm_people(ModelRc::from(self.new_dm_people.clone()));
         window.set_pins(ModelRc::from(self.pins.clone()));
+        window.set_inbox(ModelRc::from(self.inbox.clone()));
         window.set_thread_rows(ModelRc::from(self.thread_rows.clone()));
         window.set_post_rows(ModelRc::from(self.post_rows.clone()));
         window.set_post_chosen_tags(ModelRc::from(self.post_chosen_tags.clone()));
@@ -1494,6 +1506,7 @@ struct Icons {
     dm: slint::Image,
     chat: slint::Image,
     text: slint::Image,
+    id_badge: slint::Image,
     thread: slint::Image,
     forum: slint::Image,
     announcement: slint::Image,
@@ -1734,14 +1747,13 @@ impl Adapter {
                 "../ui/icons/message-square-text.svg"
             ))?,
             text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            id_badge: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-badge.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
             announcement: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/megaphone.svg"
             ))?,
             rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
-            forum: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
+            forum: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/forum.svg"))?,
             voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
@@ -1806,7 +1818,18 @@ impl Adapter {
         let layout = Layout::read(&root);
         layout.apply(window);
         let mut app = Application::default();
-        app.remember_reaction_uses(layout.reactions.clone());
+        // A Unicode emoji kept by name, as a build before named Discord's,
+        // goes by the emoji itself; a custom one (":name:id") stays.
+        app.remember_reaction_uses(
+            layout
+                .reactions
+                .iter()
+                .filter_map(|(key, uses)| {
+                    let key = if key.starts_with(':') { Some(key.clone()) } else { emoji::from_name(key) };
+                    Some((key?, *uses))
+                })
+                .collect(),
+        );
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
         app.dispatch(Action::ShowProfilePanel(!layout.profile_panel_hidden));
         app.dispatch(Action::SyncDiscordReads(
@@ -2428,6 +2451,15 @@ impl Adapter {
     /// Applies a backend event; the caller shows what it can have changed after.
     fn apply(&mut self, event: Event) -> Reach {
         let reach = Reach::of(&event);
+        // Discord names the Unicode emoji it counts ("skull"); reactions
+        // go by the emoji itself.
+        let event = match event {
+            Event::ReactionsUsed(Ok(used)) => Event::ReactionsUsed(Ok(used
+                .into_iter()
+                .filter_map(|(name, uses)| Some((emoji::from_name(&name)?, uses)))
+                .collect())),
+            event => event,
+        };
         let effects = self.app.apply(event);
         // What it set off, such as opening a DM that just started, can change
         // anything; a sound changes nothing on screen.
@@ -2610,7 +2642,7 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 /// The width role chips fill in the profile card and the full profile: the
 /// cards' widths less their padding.
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
-const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
+const PROFILE_LARGE_WIDTH: f32 = 400. - 2. * 32.;
 
 /// The most custom emoji the picker fetches pictures for at once.
 const MAX_PICKER_EMOJI: usize = 600;

@@ -14,8 +14,9 @@
   custom status together on one line, and stacked avatars for group DMs.
 - **Discord's title bar,** with back/forward history and the page's name.
 - **Servers:** server tags after names, avatar decorations, nameplates, and
-  display name fonts and colours. Turn all of these off in
-  **Settings → Advanced → Show profile styles**. Also bot APP badges,
+  display name fonts (names keep their role colour, as in Discord's lists).
+  Turn all of these off in
+  **Settings → Accessibility → Display Name Styles**. Also bot APP badges,
   channel icons for rules and announcements, an invite button on channels, and
   replies that show the colour, the tag and attachments of the message they
   answer.
@@ -352,14 +353,16 @@ they do in Discord.
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
-- **Search** a whole server with Discord's filters, and browse a channel's pins.
+- **Search** a whole server with Discord's filters, browse a channel's pins,
+  and see what mentions you in the Inbox.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, hide what blocked people write, and unblock them from
   a list in Settings.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
-- **Soft sounds** for joining, leaving, muting and messages, in six sets.
+- **Sounds** for joining, leaving, muting and messages: Discord's own,
+  downloaded from Discord at first start, or six soft sets of Yapfast's.
 
 ### Not there yet
 

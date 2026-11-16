@@ -232,6 +232,36 @@ impl NewDm {
     }
 }
 
+/// Someone streaming whom the pointer is on, and their stream's preview's
+/// address once it's known.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StreamPeek {
+    pub room: String,
+    pub user: String,
+    pub url: Option<String>,
+    /// Discord has answered; with no `url`, the stream has no preview yet.
+    pub answered: bool,
+}
+
+/// How many mentions Discord's Inbox gives at a time; a page as full may
+/// have older ones.
+pub const MENTIONS_PAGE: usize = 25;
+
+/// How long a stream's preview is shown again without asking Discord; its
+/// streamer's app uploads a new one every 5 minutes.
+const PREVIEW_KEPT_MS: u64 = 60_000;
+
+/// The messages that mention this account, while the Inbox is open.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Inbox {
+    /// The newest first; `None` while they're on their way.
+    pub hits: Option<Result<Vec<chat::SearchHit>, String>>,
+    /// Discord may have older ones: the last page was full.
+    pub more: bool,
+    /// An older page is on its way.
+    pub loading_more: bool,
+}
+
 /// A DM's pinned messages, while their list is open.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pins {
@@ -502,6 +532,8 @@ pub struct AppState {
     /// The account's name, avatar address and connection status, where the
     /// network gives them; a Discord-only build shows Discord's.
     pub account_name: Option<String>,
+    /// Its Discord username, which its panel shows while pointed at.
+    pub account_username: Option<String>,
     pub account_avatar: Option<String>,
     pub account_status: Option<String>,
     pub preview: bool,
@@ -584,6 +616,8 @@ pub struct AppState {
     /// in front, as [`Action::Reading`] says; a Discord channel is read only
     /// then, as Discord's client reads it.
     pub reading: bool,
+    /// Whose stream preview shows beside them in a voice channel's list.
+    pub stream_peek: Option<StreamPeek>,
     /// The newest message was read since the "New" divider was placed, so
     /// the bar that jumps back to it is gone.
     pub caught_up: bool,
@@ -603,6 +637,8 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The Inbox's mentions, while it's open.
+    pub inbox: Option<Inbox>,
     pub search: Option<Search>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
@@ -894,6 +930,9 @@ impl AppState {
         };
         if let Some(message) = self.messages.iter().rev().find(sender) {
             return Some(ChatMember {
+                role_look: None,
+                group_icon: None,
+                booster: false,
                 id: user.to_owned(),
                 name: message.author.clone(),
                 username: None,
@@ -920,6 +959,9 @@ impl AppState {
             .find(|person| person.id == user)
         {
             return Some(ChatMember {
+                role_look: None,
+                group_icon: None,
+                booster: false,
                 id: user.to_owned(),
                 name: person.name.clone(),
                 username: None,
@@ -946,6 +988,9 @@ impl AppState {
         // Matrix links name no one; their id does.
         let name = mentioned.or_else(|| user.starts_with('@').then(|| user.to_owned()))?;
         Some(ChatMember {
+            role_look: None,
+            group_icon: None,
+            booster: false,
             id: user.to_owned(),
             name,
             username: None,
@@ -966,6 +1011,38 @@ impl AppState {
     /// Who and what a message in the selected room may mention: its members, those
     /// found by name and those who wrote lately, then its roles and groups. This
     /// account isn't one of them.
+    /// `text` with each channel or post of `room`'s server that it names
+    /// as a message shows it, `#` or 💬 and a no-break space before the
+    /// name, in Discord's form again: an edit keeps its links.
+    pub fn wire_channels(&self, room: &str, text: &str) -> String {
+        let Some((guild, _)) = discord::parse_room(room) else {
+            return text.to_owned();
+        };
+        if !text.contains('\u{a0}') {
+            return text.to_owned();
+        }
+        let mut named: Vec<(String, String)> = self
+            .rooms
+            .iter()
+            .filter_map(|listed| {
+                let (server, channel) = discord::parse_room(&listed.id)?;
+                (server == guild).then(|| {
+                    let mark = if listed.parent.is_some() { '\u{1f4ac}' } else { '#' };
+                    (format!("{mark}\u{a0}{}", crate::links::escape_markdown(&listed.name)), format!("<#{channel}>"))
+                })
+            })
+            .collect();
+        // The longest first, so #a-b isn't taken for #a.
+        named.sort_by_key(|(shown, _)| std::cmp::Reverse(shown.len()));
+        let mut out = text.to_owned();
+        for (shown, wire) in named {
+            if out.contains(&shown) {
+                out = out.replace(&shown, &wire);
+            }
+        }
+        out
+    }
+
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
@@ -1304,6 +1381,12 @@ pub enum Action {
         key: String,
     },
     RequestDelete(String),
+    /// Remove an attachment, by its index, from this account's message, as
+    /// Discord's client does; one with nothing else asks to delete it.
+    RemoveAttachment {
+        item: String,
+        index: usize,
+    },
     /// Vote for these answers of a Discord message's poll, by item, in
     /// place of this account's vote; none takes it back.
     Vote {
@@ -1437,6 +1520,8 @@ pub enum Action {
     /// Answer a Discord DM call ringing this account: open the conversation
     /// and join, leaving any other call, or decline it.
     AcceptCall(String),
+    /// The same, with the camera on.
+    AcceptCallWithVideo(String),
     DeclineCall(String),
     /// Send a Discord user a friend request, or accept theirs.
     Befriend(String),
@@ -1475,6 +1560,21 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Open the Inbox, which lists the messages that mention this account,
+    /// or close it.
+    ShowInbox(bool),
+    /// Take a message, by item, out of the Inbox, as its ✓ does.
+    DismissMention(String),
+    /// Leave the open Discord channel unread from this message, by item,
+    /// on, as Discord's Mark Unread does.
+    MarkUnread(String),
+    /// Send a sticker, by id, to the open Discord channel or DM.
+    SendSticker(String),
+    /// The pointer is on someone streaming in a voice channel, by room and
+    /// user id, or left them: their stream's preview shows, as in Discord.
+    PeekStream(Option<(String, String)>),
+    /// The Inbox's next, older page of mentions.
+    MoreMentions,
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -1958,6 +2058,18 @@ pub struct Application {
     samples: HashMap<String, Vec<Arc<ChatMessage>>>,
     /// How often this device added each reaction.
     reaction_uses: HashMap<String, u32>,
+    /// Discord's count of the reactions this account used was asked for,
+    /// once a session.
+    #[cfg(feature = "discord")]
+    reactions_asked: bool,
+    /// Streams' previews as Discord last gave them, by room and user, with
+    /// when: hovering again within [`PREVIEW_KEPT_MS`] asks Discord nothing,
+    /// as Discord's client keeps them, so a pointer passing over several
+    /// streams doesn't run into Discord's rate limit and wait.
+    stream_previews: HashMap<(String, String), (Option<String>, u64)>,
+    /// The room marked unread by hand, which isn't read again while it
+    /// stays open, as Discord's client keeps it.
+    marked_unread: Option<String>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
     /// Forwards sent, until each conversation they went to answers.
@@ -2563,6 +2675,7 @@ impl Application {
             }
             Action::React { item, key } => self.react(item, key),
             Action::RequestDelete(item) => self.request_delete(item),
+            Action::RemoveAttachment { item, index } => self.remove_attachment(item, index),
             Action::Vote { item, answers } => self.vote(item, answers),
             Action::OpenPollDraft => self.open_poll_draft(),
             Action::EditPoll(edit) => self.edit_poll(edit),
@@ -2685,6 +2798,7 @@ impl Application {
             Action::Preview => self.start_preview(),
             Action::RequestJoinVoice(id) => self.request_join_voice(id),
             Action::AcceptCall(id) => self.accept_call(id),
+            Action::AcceptCallWithVideo(id) => self.accept_call_with_video(id),
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
             ))],
@@ -2713,6 +2827,12 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::ShowInbox(shown) => self.show_inbox(shown),
+            Action::DismissMention(item) => self.dismiss_mention(item),
+            Action::MarkUnread(item) => self.mark_unread(item),
+            Action::SendSticker(sticker) => self.send_sticker(sticker),
+            Action::PeekStream(peek) => self.peek_stream(peek),
+            Action::MoreMentions => self.more_mentions(),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::CloseGifs => self.close_gifs(),
@@ -3390,12 +3510,51 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Mentions(result) => {
+                if let Some(inbox) = self.state.inbox.as_mut() {
+                    inbox.more = result
+                        .as_ref()
+                        .is_ok_and(|hits| hits.len() >= MENTIONS_PAGE);
+                    inbox.hits = Some(result);
+                }
+            }
+            Event::StreamPreview { room, user, url } => {
+                self.stream_previews.insert(
+                    (room.clone(), user.clone()),
+                    (url.clone(), crate::clock::now_ms()),
+                );
+                if let Some(peek) = self
+                    .state
+                    .stream_peek
+                    .as_mut()
+                    .filter(|peek| peek.room == room && peek.user == user)
+                {
+                    peek.url = url;
+                    peek.answered = true;
+                }
+            }
+            Event::MoreMentions(result) => {
+                if let Some(inbox) = self.state.inbox.as_mut() {
+                    inbox.loading_more = false;
+                    match (result, inbox.hits.as_mut()) {
+                        (Ok(older), Some(Ok(hits))) => {
+                            inbox.more = older.len() >= MENTIONS_PAGE;
+                            hits.extend(older);
+                        }
+                        _ => inbox.more = false,
+                    }
+                }
+            }
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
+            // The quick reactions are those this account uses most on any
+            // of its Discord clients, as Discord's are.
+            Event::ReactionsUsed(Ok(used)) => self.remember_reaction_uses(used.into_iter().collect()),
+            Event::ReactionsUsed(Err(_)) => {}
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
             Event::Reactors {
                 item,
@@ -3797,6 +3956,53 @@ impl Application {
     /// The custom emoji this account may use in the selected room, by server, the
     /// room's own server first: with Nitro every server's, and without it only
     /// that server's, none animated.
+    /// The stickers this account may send in the open conversation: with
+    /// Nitro every server's, else the open server's, as Discord allows; the
+    /// open server's first. Lottie stickers, which only Discord makes, are
+    /// left out.
+    pub fn usable_stickers(&self) -> Vec<chat::StickerSet> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            let here = self
+                .state
+                .selected
+                .as_deref()
+                .and_then(discord::parse_room)
+                .map(|(guild, _)| guild);
+            let nitro = snapshot
+                .account
+                .as_ref()
+                .is_some_and(|account| account.premium_type > 0);
+            let mut servers: Vec<_> = snapshot
+                .servers
+                .iter()
+                .filter(|server| nitro || Some(server.id.as_str()) == here)
+                .filter(|server| !server.stickers.is_empty())
+                .collect();
+            servers.sort_by_key(|server| Some(server.id.as_str()) != here);
+            return servers
+                .into_iter()
+                .map(|server| chat::StickerSet {
+                    server: server.name.clone(),
+                    icon: server.icon.clone(),
+                    stickers: server
+                        .stickers
+                        .iter()
+                        .filter(|sticker| sticker.available && sticker.format != 3)
+                        .map(|sticker| {
+                            (
+                                sticker.id.clone(),
+                                sticker.name.clone(),
+                                yapfast_discord::ready::sticker(&sticker.id, u64::from(sticker.format)),
+                            )
+                        })
+                        .collect(),
+                })
+                .collect();
+        }
+        vec![]
+    }
+
     pub fn usable_emoji(&self) -> Vec<chat::EmojiSet> {
         #[cfg(feature = "discord")]
         if let Some(snapshot) = &self.discord {

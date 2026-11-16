@@ -19,6 +19,9 @@ export struct PersonRow {
     /// Who they are across calls, by Discord or Matrix user id, which their
     /// volumes are remembered by.
     person: string,
+    /// Their Discord server tag and its badge, and their display name
+    /// style's font id, 0 for none, as the channel list shows them.
+    tag: string, tag-badge: string, name-font: int,
 }
 
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
@@ -333,7 +336,8 @@ component DockButton inherits Rectangle {
 // wherever the window is.
 export component VoiceDock inherits Rectangle {
     in property <string> voice-status;
-    /// How long the call has lasted, as 12:05.
+    /// How long the call has lasted, as 12:05; Discord's panel doesn't
+    /// show it, so only its DM's row does.
     in property <string> voice-time;
     in property <string> voice-detail;
     in property <string> voice-name;
@@ -366,6 +370,10 @@ export component VoiceDock inherits Rectangle {
     callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
+    /// Noise suppression is offered, and on; its popout opens above here.
+    in property <bool> can-denoise;
+    in property <bool> denoising;
+    callback open-noise(length, length);
     background: Theme.panel;
     VerticalLayout {
         padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
@@ -390,15 +398,17 @@ export component VoiceDock inherits Rectangle {
                     HorizontalLayout {
                         spacing: 6px;
                         Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
-                        if root.voice-time != "": Text {
-                            text: root.voice-time; color: Theme.muted; font-size: 13px; vertical-alignment: center;
-                            accessible-label: "Call time " + root.voice-time;
-                        }
                         Rectangle { horizontal-stretch: 1; }
                     }
                     if root.voice-active: Text { text: root.voice-detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
                 LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
+            }
+            // Discord's noise suppression button, before hanging up.
+            if root.voice-active && root.can-denoise: IconButton {
+                icon: @image-url("icons/audio-lines.svg"); label: "Noise Suppression";
+                tint: root.denoising ? Theme.text : Theme.muted;
+                clicked => { root.open-noise(self.absolute-position.x, self.absolute-position.y); }
             }
             if root.voice-active: IconButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;
@@ -433,11 +443,6 @@ export component VoiceDock inherits Rectangle {
         }
         if root.voice-active && (root.can-film || root.can-share || root.sharing || root.can-soundboard): HorizontalLayout {
             padding-left: 8px; spacing: 8px;
-            if root.can-soundboard: DockButton {
-                horizontal-stretch: 1; enabled: root.voice-ready;
-                icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
-                clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
-            }
             if root.can-film: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready; on: root.camera-on;
                 icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
@@ -452,6 +457,12 @@ export component VoiceDock inherits Rectangle {
                 icon: @image-url("icons/screen-share.svg");
                 label: root.sharing ? "Switch screen or window" : "Share your screen";
                 clicked => { root.open-share-menu(self.absolute-position.x, self.absolute-position.y); }
+            }
+            // Last, as in Discord: the camera, the screen, then the soundboard.
+            if root.can-soundboard: DockButton {
+                horizontal-stretch: 1; enabled: root.voice-ready;
+                icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
+                clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
             }
         }
         // Wrapped in the dock's width; a scroll view would neither wrap nor stay short.
@@ -471,31 +482,57 @@ export component VoiceDock inherits Rectangle {
     }
 }
 
-// A DM's call this account isn't in: who is, and a way to join it, or to
-// answer it when it rings.
+// A green or red rounded square of Discord's call screens, its meaning in
+// its tooltip and accessible label.
+component CallSquare inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <color> fill;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 66px; height: 50px; border-radius: 10px;
+    opacity: root.enabled ? 1 : 0.5;
+    background: touch.has-hover && root.enabled ? root.fill.darker(0.15) : root.fill;
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image { source: root.icon; width: 22px; height: 22px; colorize: Theme.on-danger; }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+// A DM's call this account isn't in, as Discord shows it: who is in it as
+// round pictures, then green buttons to join, with the camera or without.
+// While it rings, a note says who calls, and a red button declines.
 export component CallInvite inherits VerticalLayout {
     in property <[PersonRow]> call-people;
     in property <string> call-note;
     in property <bool> call-incoming;
     in property <string> call-room;
     in property <bool> can-join;
+    /// The call carries cameras: Discord offers joining with yours on.
+    in property <bool> can-film;
     callback answer-call(string, bool);
-    padding: 20px; spacing: 12px; alignment: center;
+    callback join-with-video(string);
+    padding: 24px; padding-bottom: 16px; spacing: 16px; alignment: center;
     HorizontalLayout {
-        alignment: center; spacing: 8px;
+        alignment: center; spacing: 16px;
         for person in root.call-people: Avatar {
-            size: 56px; initial: person.initial; tint: person.tint; picture: person.picture;
+            size: 76px; initial: person.initial; tint: person.tint; picture: person.picture;
             accessible-role: image; accessible-label: person.name;
         }
     }
-    Text { text: root.call-note; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
+    if root.call-incoming: Text { text: root.call-note; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
     HorizontalLayout {
         alignment: center; spacing: 16px;
-        if root.call-incoming: CallButton {
+        if root.call-incoming: CallSquare {
             icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
             clicked => { root.answer-call(root.call-room, false); }
         }
-        CallButton {
+        if root.can-film: CallSquare {
+            icon: @image-url("icons/video.svg"); label: root.call-incoming ? "Accept with Video" : "Join with Video";
+            fill: Theme.live; enabled: root.can-join;
+            clicked => { root.join-with-video(root.call-room); }
+        }
+        CallSquare {
             icon: @image-url("icons/phone.svg"); label: root.call-incoming ? "Accept" : "Join the call";
             fill: Theme.live; enabled: root.can-join;
             clicked => { root.answer-call(root.call-room, true); }
@@ -938,8 +975,33 @@ export component ParticipantGrid inherits Flickable {
     }
 }
 
-// The call's controls under the stage: mute, deafen, the soundboard, the
-// camera, share the screen, and leave.
+// One button in a group of the call's controls: an icon on the group's
+// dark pill, lighter while hovered, red while it warns (muted).
+component CallKey inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> alert;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 44px; height: 40px; border-radius: 8px;
+    background: touch.has-hover && root.enabled ? Theme.button-default-hover : root.on ? Theme.button-default : transparent;
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image { source: root.icon; width: 20px; height: 20px; colorize: root.alert ? Theme.danger : Theme.text; }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+// A group of the call's controls on one dark pill, as Discord draws them.
+component CallGroup inherits Rectangle {
+    background: Theme.raised; border-radius: 10px; border-width: 1px; border-color: Theme.line;
+    HorizontalLayout { padding: 4px; spacing: 2px; @children }
+}
+
+// The call's controls under the stage, grouped as in Discord: the
+// microphone and camera; sharing the screen and the soundboard; then
+// leaving, in red. Deafen lives in the user panel, as Discord's does.
 export component CallControls inherits HorizontalLayout {
     in property <bool> muted;
     in property <bool> deafened;
@@ -956,6 +1018,10 @@ export component CallControls inherits HorizontalLayout {
     callback toggle-deafen;
     callback toggle-camera;
     callback toggle-share;
+    /// The microphone's ˅: its menu, under this point in the window.
+    callback open-input-menu(length, length);
+    /// The camera's ˅: its menu, likewise.
+    callback open-camera-menu(length, length);
     /// The call has Discord's soundboard.
     in property <bool> can-soundboard;
     /// Sharing starts from a menu, opened at this point in the window.
@@ -963,59 +1029,99 @@ export component CallControls inherits HorizontalLayout {
     /// The soundboard, opened above this point in the window.
     callback open-soundboard(length, length);
     callback leave-voice;
-    alignment: center; spacing: 12px; padding: 16px; padding-top: 8px;
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-        label: root.muted ? "Unmute" : "Mute"; alert: root.muted; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-mute(); }
-    }
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-        label: root.deafened ? "Undeafen" : "Deafen"; alert: root.deafened; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-deafen(); }
-    }
-    if root.can-soundboard: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; tint: Theme.text;
-        enabled: root.voice-ready; fill: Theme.raised;
-        clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
-    }
-    if root.can-film: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
-        label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera"; tint: Theme.text;
-        enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
-        fill: root.camera-on ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => { root.toggle-camera(); }
-    }
-    if root.can-share || root.sharing: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
-        label: root.sharing ? "Stop sharing" : "Share your screen"; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: root.sharing ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => {
-            if root.sharing {
-                root.toggle-share();
-            } else {
-                root.open-share-menu(self.absolute-position.x, self.absolute-position.y);
+    alignment: center; spacing: 12px; padding: 16px; padding-top: 12px;
+    CallGroup {
+        CallKey {
+            icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+            label: root.muted ? "Unmute" : "Mute"; alert: root.muted; enabled: root.voice-ready;
+            clicked => { root.toggle-mute(); }
+        }
+        // Discord's ˅ beside the microphone: its devices and volume.
+        Rectangle {
+            width: 24px; height: 40px; border-radius: 8px;
+            background: chevron-touch.has-hover ? Theme.button-default-hover : transparent;
+            accessible-role: button; accessible-label: "Input options";
+            accessible-action-default => { root.open-input-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+            Image { source: @image-url("icons/chevron-down.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
+            chevron-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.open-input-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+            }
+        }
+        if root.can-film: CallKey {
+            icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
+            label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera";
+            on: root.camera-on; enabled: root.voice-ready;
+            opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
+            clicked => { root.toggle-camera(); }
+        }
+        if root.can-film: Rectangle {
+            width: 24px; height: 40px; border-radius: 8px;
+            background: camera-chevron.has-hover ? Theme.button-default-hover : transparent;
+            accessible-role: button; accessible-label: "Video options";
+            accessible-action-default => { root.open-camera-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+            Image { source: @image-url("icons/chevron-down.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
+            camera-chevron := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.open-camera-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
             }
         }
     }
+    /// Too narrow for every group: Discord keeps the microphone, camera
+    /// and hanging up, which the voice panel's buttons back.
+    in property <bool> compact;
+    if !root.compact && (root.can-share || root.sharing || root.can-soundboard): CallGroup {
+        if root.can-share || root.sharing: CallKey {
+            icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
+            label: root.sharing ? "Stop sharing" : "Share your screen"; on: root.sharing; enabled: root.voice-ready;
+            clicked => {
+                if root.sharing {
+                    root.toggle-share();
+                } else {
+                    root.open-share-menu(self.absolute-position.x, self.absolute-position.y);
+                }
+            }
+        }
+        if root.can-soundboard: CallKey {
+            icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; enabled: root.voice-ready;
+            clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
+        }
+    }
     Rectangle {
-        width: 76px; height: 52px; border-radius: 26px;
+        width: 66px; height: 50px; border-radius: 10px;
         background: leave-touch.has-hover ? Theme.danger-hover : Theme.danger;
         opacity: root.voice-leaving ? 0.5 : 1;
         accessible-role: button; accessible-label: "Leave voice"; accessible-enabled: !root.voice-leaving;
         accessible-action-default => { if !root.voice-leaving { root.leave-voice(); } }
         Image { source: @image-url("icons/phone-off.svg"); width: 22px; height: 22px; colorize: Theme.on-danger; }
         leave-touch := TouchArea { enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer; clicked => { root.leave-voice(); } }
+    }
+}
+
+// The people in a DM's call as Discord shows them while nobody films or
+// shares: a row of round pictures, a green ring on whoever speaks. A right
+// click on one opens their volume.
+export component CallFaces inherits HorizontalLayout {
+    in property <[PersonRow]> people;
+    callback open-volume(PersonRow, length, length);
+    alignment: center; spacing: 16px; padding-top: 24px;
+    for person in root.people: Rectangle {
+        width: 88px; height: 88px; border-radius: 44px;
+        border-width: person.speaking ? 3px : 0px; border-color: Theme.live;
+        opacity: person.connected ? 1 : 0.5;
+        accessible-role: image;
+        accessible-label: person.name + (person.speaking ? ", speaking" : person.muted ? ", muted" : "");
+        Avatar {
+            x: 6px; y: 6px; size: 76px;
+            initial: person.initial; tint: person.tint; picture: person.picture;
+        }
+        TouchArea {
+            pointer-event(event) => {
+                if !person.local && event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.open-volume(person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
+        }
     }
 }
 

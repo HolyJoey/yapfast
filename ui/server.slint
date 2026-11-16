@@ -3,7 +3,7 @@ import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
-import { ProfileData, ProfileHeading } from "people.slint";
+import { ProfileData, ProfileHeading, ProfileCard } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -738,7 +738,10 @@ export component ProfileEditorDialog inherits Rectangle {
     // only to keep its end in the window.
     card := Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        width: min(600px, root.width - 48px); height: min(card-content.preferred-height, root.height - 48px);
+        // As Discord's: the editor on the left, a preview of the card on the
+        // right while there's room for both.
+        property <bool> beside: root.width >= 1000px;
+        width: min(self.beside ? 940px : 600px, root.width - 48px); height: min(card-content.preferred-height, root.height - 48px);
         y: max(24px, min((root.height - 600px) / 2, root.height - 24px - self.height));
         background: Theme.sidebar; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
@@ -763,7 +766,10 @@ export component ProfileEditorDialog inherits Rectangle {
             Rectangle {
                 border-radius: 12px; clip: true;
                 card-content := VerticalLayout {
+                    HorizontalLayout {
+                    vertical-stretch: 1;
                     ScrollView {
+                        horizontal-stretch: 1;
                         vertical-stretch: 1;
                         min-height: min(body.preferred-height, 240px);
                         preferred-height: body.preferred-height;
@@ -998,7 +1004,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 6px; alignment: start;
-                                        Middle { ProfileHeading { text: "ABOUT ME"; } }
+                                        Middle { ProfileHeading { text: "About Me"; } }
                                         if root.editing != 3 && root.ready && root.prompt.bio-enabled: Middle {
                                             EditPencil { label: "Edit bio"; size: 22px; glyph: 13px; clicked => { root.edit(3); } }
                                         }
@@ -1059,7 +1065,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "MEMBER SINCE"; }
+                                    ProfileHeading { text: "Member Since"; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {
@@ -1075,6 +1081,17 @@ export component ProfileEditorDialog inherits Rectangle {
                                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                             }
                         }
+                    }
+                    // The preview, as others will see the card.
+                    if card.beside: Rectangle {
+                        width: 340px; background: Theme.raised;
+                        Rectangle { x: 0px; width: 1px; background: Theme.line; }
+                        VerticalLayout {
+                            padding: 20px; spacing: 12px; alignment: start;
+                            Text { text: "Preview"; color: Theme.text; font-size: 14px; font-weight: 700; }
+                            ProfileCard { preview: true; data: root.prompt.preview; width: 300px; limit: 520px; }
+                        }
+                    }
                     }
                     // Discord's bar, once there's something to save.
                     if root.prompt.changed || root.prompt.saving: UnsavedBar {

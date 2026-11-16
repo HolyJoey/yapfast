@@ -1,5 +1,6 @@
+import { ScrollView } from "scrollview.slint";
 import { Theme, Tip } from "theme.slint";
-import { IconButton, TextField, Picture } from "controls.slint";
+import { IconButton, TextField, Picture, PictureStore } from "controls.slint";
 
 /// A tile of the GIF picker's grid, placed by the adapter as Discord's
 /// masonry places it. `kind`: 0 a GIF, 1 the Favorites tile, 2 "Trending
@@ -25,6 +26,63 @@ export global GifFavorites {
     callback toggle(string, int);
     /// A star is about to be used: the favourites load, if they haven't.
     callback wanted();
+}
+
+/// One sticker in the sticker picker: its id, name and picture's address.
+export struct StickerPick { id: string, name: string, url: string }
+/// A server's stickers under its name, as the picker lists them.
+export struct StickerSection { server: string, icon: string, stickers: [StickerPick] }
+
+// Discord's sticker picker: each server's stickers under its name, four to a
+// row; a click sends one.
+export component StickerPicker inherits VerticalLayout {
+    in property <[StickerSection]> sections;
+    in property <string> empty;
+    callback pick(string);
+    property <string> hover;
+    padding-left: 16px; padding-right: 16px; padding-bottom: 12px; spacing: 8px;
+    if root.sections.length == 0: VerticalLayout {
+        vertical-stretch: 1; alignment: center;
+        Text { text: root.empty; color: Theme.muted; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+    }
+    if root.sections.length > 0: ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 6px; alignment: start;
+            for section in root.sections: VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 6px; padding-top: 6px; alignment: start;
+                    Text { text: section.server; color: Theme.secondary; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+                }
+                for row[r] in ceil(section.stickers.length / 4): HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    for column in 4: tile := Rectangle {
+                        property <int> at: r * 4 + column;
+                        visible: self.at < section.stickers.length;
+                        width: 104px; height: 104px; border-radius: 8px;
+                        background: touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button; accessible-label: self.at < section.stickers.length ? section.stickers[self.at].name : "";
+                        if tile.at < section.stickers.length: Image {
+                            width: 88px; height: 88px; image-fit: contain;
+                            source: PictureStore.picture(section.stickers[tile.at].url, PictureStore.revision);
+                            init => { if self.source.width == 0 { PictureStore.request(section.stickers[tile.at].url); } }
+                        }
+                        touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            changed has-hover => { if self.has-hover && tile.at < section.stickers.length { root.hover = section.stickers[tile.at].name; } }
+                            clicked => { if tile.at < section.stickers.length { root.pick(section.stickers[tile.at].id); } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The hovered sticker's name, as Discord's foot.
+    Rectangle {
+        height: 32px;
+        Text { x: 0px; text: root.hover; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+    }
 }
 
 // A GIF's star, shown while the pointer is over the GIF, as Discord's: at a
@@ -187,7 +245,7 @@ export component GifPicker inherits VerticalLayout {
                     }
                     HorizontalLayout {
                         alignment: center; spacing: 6px;
-                        if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/star-filled.svg"); colorize: #ffffff; }
+                        // Discord's Favourites tile names itself without a star.
                         if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/trending-up.svg"); colorize: #ffffff; }
                         Text {
                             text: tile.label; color: #ffffff; font-size: 16px; font-weight: 600;

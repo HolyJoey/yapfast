@@ -260,6 +260,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_start_video_call(move |user| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::VideoCallPerson(user.to_string()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_answer_call(move |room, accept| {
         if let Some(window) = weak.upgrade() {
             let room = room.to_string();
@@ -434,6 +443,57 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind_item!(on_request_delete, Action::RequestDelete);
+    bind_item!(on_dismiss_mention, Action::DismissMention);
+    bind_item!(on_mark_unread, Action::MarkUnread);
+    bind_item!(on_join_call_with_video, Action::AcceptCallWithVideo);
+    bind_item!(on_send_sticker, Action::SendSticker);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_peek_stream(move |room, user, on| {
+            if let Some(window) = weak.upgrade() {
+                let peek = on.then(|| (room.to_string(), user.to_string()));
+                adapter.borrow_mut().action(&window, Action::PeekStream(peek));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_load_stickers(move || {
+            let Some(window) = weak.upgrade() else { return };
+            let sections: Vec<StickerSection> = adapter
+                .borrow()
+                .app
+                .usable_stickers()
+                .into_iter()
+                .map(|set| StickerSection {
+                    server: set.server.into(),
+                    icon: set.icon.unwrap_or_default().into(),
+                    stickers: ModelRc::new(VecModel::from(
+                        set.stickers
+                            .into_iter()
+                            .map(|(id, name, url)| StickerPick {
+                                id: id.into(),
+                                name: name.into(),
+                                url: url.into(),
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                })
+                .collect();
+            window.set_sticker_sections(ModelRc::new(VecModel::from(sections)));
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_more_mentions(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().action(&window, Action::MoreMentions);
+            }
+        });
+    }
     bind_item!(on_pin_message, Action::PinMessage);
     bind_item!(on_retry, Action::Retry);
     bind_item!(on_cancel_send, Action::CancelSend);
@@ -666,6 +726,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_close_post, Action::CloseNewPost);
     bind!(on_leave_post, Action::LeaveNewPost);
     bind!(on_stay_post, Action::StayInNewPost);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_show_inbox(move |shown| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::ShowInbox(shown));
+            }
+        });
+    }
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
@@ -1023,9 +1094,22 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
             return;
         }
+        if link == messages::JOIN_CALL_LINK {
+            if let Some(window) = weak.upgrade() {
+                window.invoke_start_call();
+            }
+            return;
+        }
         if link == messages::PINS_LINK {
             if let Some(window) = weak.upgrade() {
                 window.invoke_open_pins();
+            }
+            return;
+        }
+        // A channel's or post's mention opens it, as Discord's does.
+        if let Some(mention::Target::Channel(room)) = mention::target(&link) {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(&window, Action::SelectRoom(room));
             }
             return;
         }
@@ -1050,6 +1134,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     Action::ShowProfile { user, large: false }
                 }
                 mention::Target::Role(role) => Action::ShowRole(role),
+                mention::Target::Channel(room) => Action::SelectRoom(room),
                 // As in Discord's client, @everyone and @here open nothing.
                 mention::Target::Everyone => return,
             };
@@ -1463,6 +1548,24 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .into()
     });
     let state = adapter.clone();
+    window.on_message_link(move |item| {
+        let adapter = state.borrow();
+        let Some(id) = item.strip_prefix("d:") else {
+            return SharedString::default();
+        };
+        adapter
+            .app
+            .state
+            .room_of(&item)
+            .and_then(|room| yapfast_core::discord::parse_room(room))
+            .map(|(guild, channel)| {
+                // A DM's goes by Discord's @me, its guild here too.
+                format!("https://discord.com/channels/{guild}/{channel}/{id}").into()
+            })
+            .unwrap_or_default()
+    });
+    window.on_message_id(|item| item.strip_prefix("d:").unwrap_or_default().into());
+    let state = adapter.clone();
     window.on_attachment_link(move |item, index| {
         let adapter = state.borrow();
         usize::try_from(index)
@@ -1479,6 +1582,20 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             })
             .unwrap_or_default()
             .into()
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_remove_attachment(move |item, index| {
+        let (Some(window), Ok(index)) = (weak.upgrade(), usize::try_from(index)) else {
+            return;
+        };
+        state.borrow_mut().action(
+            &window,
+            Action::RemoveAttachment {
+                item: item.to_string(),
+                index,
+            },
+        );
     });
     let state = adapter.clone();
     window.on_save_attachment(move |item, index| {

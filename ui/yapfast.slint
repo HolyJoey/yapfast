@@ -32,16 +32,16 @@ import "fonts/styles/Kalam-Bold.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Popup, PopupMotion, Label, ActivityClock } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
-import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Looks } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
+import { GifPicker, GifTile, PickerTab, StickerPicker, StickerSection } from "gifs.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Looks, PictureStore, VolumeSlider } from "controls.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, CallFaces, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ServerCard, RoleCard } from "people.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, SettingsSwitch } from "settings.slint";
+import { MemberRow, ProfileData, ProfileServerRow, MemberPanel, ProfileCard, ProfileTabs, ServerCard, RoleCard, ActivityRow } from "people.slint";
 import { RequestRow, FriendRow, ActiveNowRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -51,7 +51,7 @@ import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "
 import { BansPrompt, SafetyOption, SafetyPrompt } from "moderation.slint";
 import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateRow } from "channel_settings.slint";
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
-import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
+import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, InboxPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
@@ -64,11 +64,11 @@ export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, Motion } from "controls.slint";
 export { StagedFile, MentionRow } from "composer.slint";
 export { EmojiCell, EmojiRow, EmojiSection, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
-export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
+export { MemberRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadge, ProfileConnection, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
-export { GifTile, GifFavorites } from "gifs.slint";
+export { GifTile, GifFavorites, StickerPick, StickerSection } from "gifs.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -93,6 +93,9 @@ export component YapfastWindow inherits Window {
     in property <string> title-url;
     in property <bool> title-round;
     in property <int> title-glyph;
+    /// The bottom of the rail's lowest unread server, from the list's top,
+    /// in pixels; 0 for none.
+    in property <int> rail-unread-bottom;
     /// Back and forward through the places shown.
     in property <bool> can-go-back;
     in property <bool> can-go-forward;
@@ -184,6 +187,17 @@ export component YapfastWindow inherits Window {
     in property <string> header-server;
     /// Its icon's address and initial, before its name.
     in property <string> header-server-icon;
+    /// The open server's boost level, 0 to 3.
+    in property <int> header-server-boost;
+    /// The badge before the server's name: 0 the boost badge, 1 verified,
+    /// 2 partnered, 3 discoverable.
+    in property <int> header-server-badge;
+    /// Its boosts, for its boost goal's bar, -1 for none; and whether it has
+    /// onboarding, for Channels & Roles.
+    in property <int> header-server-boosts: -1;
+    in property <bool> header-server-onboarding;
+    /// The address of the open server's banner, if it has one.
+    in property <string> header-server-banner;
     in property <string> header-server-initial;
     in property <bool> header-invite;
     // A Discord server's or channel's invite dialog: the link, and the
@@ -323,7 +337,17 @@ export component YapfastWindow inherits Window {
     in property <image> account-picture;
     /// The account is speaking in the call, unmuted, as its own row there shows.
     in property <bool> account-speaking;
+    /// A group DM without an icon: two of its people's pictures, for the
+    /// header as for its row.
+    in property <string> room-face-a;
+    in property <string> room-face-b;
     in property <string> account-status;
+    /// In a call: the panel says so, after a green phone or speaker.
+    in property <bool> account-calling;
+    in property <string> account-call-line: "In a call";
+    /// The account's Discord username, shown in place of its status while
+    /// its panel is pointed at, as Discord's does.
+    in property <string> account-username;
     /// The game the Discord account shows it plays, and for how long, which
     /// the window asks for with `game-duration-due` while the menu shows it.
     in property <string> game-activity-name;
@@ -335,11 +359,17 @@ export component YapfastWindow inherits Window {
     in property <string> notice;
     in-out property <string> graphics-notice;
     in property <string> room-name;
+    in property <bool> room-editable;
     /// A Discord thread's channel: its name, and its room id to go back to.
     in property <string> room-parent;
     in property <string> room-parent-id;
     /// The thread's channel is a forum, and the thread one of its posts.
     in property <bool> room-parent-forum;
+    /// Who started the open thread or post, by user id; see MessageContent.
+    in property <string> room-owner;
+    /// A forum post this account may follow, and whether it does.
+    in property <bool> post-follow-offered;
+    in property <bool> post-following;
     in property <image> room-icon;
     in property <bool> room-direct;
     in property <string> room-initial;
@@ -435,6 +465,9 @@ export component YapfastWindow inherits Window {
     /// A voice room shows its call, rather than its chat.
     property <bool> voice-panel: root.voice-room && !root.voice-chat;
     in property <bool> composer-enabled;
+    /// This account may not send in the open Discord channel: the field
+    /// says so in place of its buttons, as Discord's does.
+    in property <bool> composer-locked;
     /// The selected conversation is a Discord message request, introduced by
     /// the title; it's answered instead of written to.
     in property <bool> room-request;
@@ -559,6 +592,11 @@ export component YapfastWindow inherits Window {
     callback paste-into-composer;
     public function paste-composer-text() { composer.paste-text(); }
     in property <string> confirm-delete;
+    /// What deleting it asks, with what the message says.
+    in property <ChannelPrompt> delete-prompt;
+    // A bar's button that goes while the pointer is on it leaves no
+    // tooltip behind, as when asking to delete hides the bar.
+    changed confirm-delete => { Tip.text = ""; }
     in-out property <string> react-item;
     in-out property <string> active-item;
     // Where the active message is in the timeline, so the keyboard can step from it.
@@ -675,6 +713,14 @@ export component YapfastWindow inherits Window {
     in property <[int]> viewer-delays;
     in property <int> viewer-width;
     in property <int> viewer-height;
+    /// Who posted the image shown, their picture and colour, when, and
+    /// its address on the web.
+    in property <string> viewer-author;
+    in property <string> viewer-author-picture;
+    in property <color> viewer-author-color;
+    in property <bool> viewer-author-colored;
+    in property <string> viewer-when;
+    in property <string> viewer-link;
     in property <string> viewer-name;
     /// Such as "2 / 3"; empty for a message's only image.
     in property <string> viewer-position;
@@ -868,16 +914,30 @@ export component YapfastWindow inherits Window {
     in property <bool> can-call;
     /// Someone is in the open DM's call, so the header joins rather than starts it.
     in property <bool> call-going;
+    /// Nobody in this account's call films or shares, so a DM shows its
+    /// people as a row of round pictures, as Discord does.
+    in property <bool> call-faces;
     callback start-call;
+    /// The header's video call button: whom to call with the camera on.
+    callback start-video-call(string);
     /// The open DM's header lists its pinned messages, searches it, and adds
     /// friends to it.
     in property <bool> can-pin;
     in property <bool> can-search;
     in property <bool> can-add-people;
     /// Its pinned messages, under the pin button, or what to say instead.
+    /// Discord's Inbox: whether it can open, whether it's open, the
+    /// mentions it lists, and what it says instead of them.
+    in property <bool> can-inbox;
+    in property <bool> inbox-open;
+    in property <[FoundRow]> inbox;
+    in property <string> inbox-note;
+    callback show-inbox(bool);
     in property <bool> pins-open;
     in property <[FoundRow]> pins;
     in property <string> pins-note;
+    /// The note says there are no pins.
+    in property <bool> pins-empty;
     callback show-pins(bool);
     /// The header's pin button's bottom right corner, under which the pins open.
     property <length> pins-anchor-x;
@@ -1049,7 +1109,7 @@ export component YapfastWindow inherits Window {
     // Closing settings stops linking Discord there.
     changed settings-open => {
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
-        if !self.settings-open { self.camera-testing = false; }
+        if !self.settings-open { self.camera-testing = false; self.mic-testing = false; }
         if !self.settings-open && self.theme-editor { self.cancel-theme(); }
     }
     in-out property <int> settings-section;
@@ -1321,6 +1381,56 @@ export component YapfastWindow inherits Window {
     callback pin-message(string);
     callback emoji-search(string);
     callback start-forward(string);
+    /// Take a mention, by item, out of the Inbox.
+    callback dismiss-mention(string);
+    /// Leave the channel unread from this message on.
+    callback mark-unread(string);
+    /// Join or answer a DM's call with the camera on.
+    callback join-call-with-video(string);
+    /// Someone streaming whom the pointer is on: whether their preview
+    /// shows, its address once known, whose it is, and where.
+    in property <bool> peek-open;
+    in property <string> peek-url;
+    in property <bool> peek-answered;
+    /// The game the streamer plays, which Discord's popout shows under the
+    /// picture with how long they've played.
+    in property <bool> peek-has-game;
+    in property <ActivityRow> peek-game;
+    in property <string> peek-name;
+    property <length> peek-x;
+    property <length> peek-y;
+    // Whose stream it shows, and whether the pointer is on their row or on
+    // the preview: it stays while the pointer crosses from one to the other.
+    property <string> peek-room;
+    property <string> peek-user;
+    property <bool> peek-on-row;
+    property <bool> peek-on-card;
+    /// The popout's Watch Stream: as clicking them in the list, it joins
+    /// their call if need be and watches.
+    function watch-peek() {
+        root.peek-on-card = false; root.peek-on-row = false;
+        root.peek-stream(root.peek-room, root.peek-user, false);
+        root.show-voice-person(root.peek-room, root.peek-user);
+    }
+    peek-closer := Timer {
+        interval: 250ms; running: false;
+        triggered => {
+            self.running = false;
+            if !root.peek-on-row && !root.peek-on-card { root.peek-stream(root.peek-room, root.peek-user, false); }
+        }
+    }
+    callback peek-stream(string, string, bool);
+    /// The stickers this account may send here, which the picker asks for
+    /// as it shows them; and one picked, by id.
+    in property <[StickerSection]> sticker-sections;
+    callback load-stickers;
+    callback send-sticker(string);
+    /// The Inbox may have older mentions, and they're on their way.
+    in property <bool> inbox-more;
+    in property <bool> inbox-loading-more;
+    callback more-mentions;
+    /// Remove a file, by its index, from this account's message.
+    callback remove-attachment(string, int);
     callback forward-choose(string);
     callback forward-send(string);
     callback forward-search;
@@ -1339,6 +1449,10 @@ export component YapfastWindow inherits Window {
     callback copy-attachment(string, int);
     /// An attachment's address on the web, or empty when it has none.
     pure callback attachment-link(string, int) -> string;
+    /// A Discord message's link and id, by item, for its menu to copy;
+    /// empty for one that has none.
+    pure callback message-link(string) -> string;
+    pure callback message-id(string) -> string;
     /// The text selected in the message at this point in the window, as
     /// copied, or empty when none is.
     pure callback selection-at(length, length) -> string;
@@ -1545,8 +1659,12 @@ export component YapfastWindow inherits Window {
     function open-settings() { input-menu.close(); output-menu.close(); root.settings-section = 1; root.settings-open = true; root.refresh-devices(); }
     property <bool> input-open: input-menu.is-open;
     property <bool> output-open: output-menu.is-open;
-    changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); }
-    Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
+    changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open || root.mic-testing); }
+    // Voice settings' Mic Test uses the same meter, while it runs and shows.
+    property <bool> mic-testing;
+    property <bool> mic-metered: root.mic-testing && root.settings-open && root.settings-section == 1;
+    changed mic-metered => { root.input-level = 0; root.meter-note = ""; root.metering(self.mic-metered || root.input-open); }
+    Timer { interval: 50ms; running: root.input-open || root.mic-metered; triggered => { root.meter-tick(); } }
     // The Discord gate's meter runs while voice settings show it.
     property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
     // Cameras stop making pictures for a grid that left the screen, and one
@@ -1559,17 +1677,28 @@ export component YapfastWindow inherits Window {
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
     Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    /// The device menus open under the call's buttons, above the panel's.
+    property <bool> menu-below;
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
-        y: max(8px, root.menu-y - self.height - 6px);
+        y: root.menu-below ? root.menu-y + 6px : max(8px, root.menu-y - self.height - 6px);
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         DeviceMenu {
-            heading: "INPUT DEVICE"; devices: root.microphones; current: root.microphone-index;
+            heading: "Input Device"; devices: root.microphones; current: root.microphone-index;
             empty: "No microphones found. Connect one, then reopen this menu.";
             select(index) => { root.select-microphone(index); }
             settings => { root.open-settings(); }
             Rectangle { height: 1px; background: Theme.line; }
+            // Discord's Input Volume over its level meter.
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                VolumeSlider {
+                    label: "Input Volume"; plain: true; value <=> root.microphone-volume;
+                    changed => { root.call-volumes-changed(); }
+                    committed => { root.preferences-changed(); }
+                }
+            }
             InputLevel { input-level: root.input-level; muted: root.muted; meter-note: root.meter-note; }
         }
     }
@@ -1579,10 +1708,64 @@ export component YapfastWindow inherits Window {
         width: 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         DeviceMenu {
-            heading: "OUTPUT DEVICE"; devices: root.speakers; current: root.speaker-index;
+            heading: "Output Device"; devices: root.speakers; current: root.speaker-index;
             empty: "No speakers found. Connect one, then reopen this menu.";
             select(index) => { root.select-speaker(index); }
             settings => { root.open-settings(); }
+            Rectangle { height: 1px; background: Theme.line; }
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px; padding-bottom: 4px;
+                VolumeSlider {
+                    label: "Output Volume"; plain: true; value <=> root.speaker-volume;
+                    changed => { root.call-volumes-changed(); }
+                    committed => { root.preferences-changed(); }
+                }
+            }
+        }
+    }
+    // Discord's noise suppression popout over the voice panel: one switch,
+    // what it does, and the way to the voice settings. On takes the last
+    // filter chosen, DeepFilterNet at first.
+    property <int> denoise-choice: 0;
+    noise-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x - 120px));
+        y: max(8px, root.menu-y - self.height - 8px);
+        width: 280px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            VerticalLayout {
+                padding: 14px; spacing: 10px;
+                SettingsSwitch {
+                    text: "Noise Suppression"; controlled: true;
+                    checked: root.noise-suppression != 2;
+                    toggled(on) => {
+                        if !on { root.denoise-choice = root.noise-suppression; root.noise-suppression = 2; }
+                        else { root.noise-suppression = root.denoise-choice == 2 ? 0 : root.denoise-choice; }
+                        root.preferences-changed();
+                    }
+                }
+                Label { text: "Takes out background noise, such as typing or a fan, from your microphone in calls."; }
+                Rectangle { height: 1px; background: Theme.line; }
+                MenuItem {
+                    text: "Voice Settings"; icon: @image-url("icons/settings.svg");
+                    clicked => { noise-menu.close(); root.settings-section = 1; root.settings-open = true; root.refresh-devices(); }
+                }
+            }
+        }
+    }
+    // The call's camera ˅: which camera, and the way to its settings.
+    camera-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
+        y: root.menu-y + 6px;
+        width: 280px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        DeviceMenu {
+            heading: "Camera"; devices: root.cameras; current: root.camera-index; settings-label: "Video Settings";
+            empty: "No cameras found. Connect one, then reopen this menu.";
+            select(index) => { root.camera-index = index; root.select-camera(index); }
+            settings => { camera-menu.close(); root.settings-section = 1; root.settings-open = true; root.refresh-devices(); }
         }
     }
     // The quality picked in the share menu, from the last choice each time it opens.
@@ -1843,12 +2026,14 @@ export component YapfastWindow inherits Window {
         root.emoji-search("");
         root.expression-tab = tab;
         if tab == 0 { root.open-gifs(); }
+        if tab == 2 { root.load-stickers(); }
         expressions.show();
     }
     function show-expression-tab(tab: int) {
         if tab == root.expression-tab { return; }
         root.expression-tab = tab;
         if tab == 0 { root.open-gifs(); } else { root.close-gifs(); }
+        if tab == 2 { root.load-stickers(); }
     }
     property <bool> expressions-open: expressions.is-open;
     changed expressions-open => {
@@ -1879,7 +2064,7 @@ export component YapfastWindow inherits Window {
         // The emoji keep the width the picker opens at: only the GIFs' grid
         // takes more columns as it widens.
         panel := Rectangle {
-            width: root.expression-tab == 0 ? root.gif-picker-shown : 520px;
+            width: root.expression-tab == 0 ? root.gif-picker-shown : root.expression-tab == 2 ? 480px : 520px;
             x: parent.width - self.width;
             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
@@ -1890,6 +2075,7 @@ export component YapfastWindow inherits Window {
                 HorizontalLayout {
                     padding-left: 16px; spacing: 8px; alignment: start;
                     PickerTab { text: "GIFs"; selected: root.expression-tab == 0; clicked => { root.show-expression-tab(0); } }
+                    PickerTab { text: "Stickers"; selected: root.expression-tab == 2; clicked => { root.show-expression-tab(2); } }
                     PickerTab { text: "Emoji"; selected: root.expression-tab == 1; clicked => { root.show-expression-tab(1); } }
                 }
                 if root.expression-tab == 0: GifPicker {
@@ -1904,6 +2090,11 @@ export component YapfastWindow inherits Window {
                     scrolled-to(top, height) => { root.gifs-scrolled(top, height); }
                     resized => { root.gif-picker-resized(); }
                     close => { expressions.close(); }
+                }
+                if root.expression-tab == 2: StickerPicker {
+                    sections: root.sticker-sections;
+                    empty: "No stickers you can send here. Servers' stickers show here in their channels.";
+                    pick(id) => { root.send-sticker(id); expressions.close(); }
                 }
                 if root.expression-tab == 1: EmojiPicker {
                     bare: true;
@@ -2033,12 +2224,14 @@ export component YapfastWindow inherits Window {
             view-thread(room) => { root.open-aside(room); message-menu.close(); }
             view-reactions(item) => { root.view-reactions(item, ""); message-menu.close(); }
             emoji-font: root.emoji-font; composer-enabled: root.composer-enabled; forward-allowed: root.forward-allowed; preview: root.preview;
+            message-link: root.message-link(root.menu-message.item); message-id: root.message-id(root.menu-message.item);
             react(item, key) => { root.react(item, key); message-menu.close(); }
             open-picker(item) => { root.open-picker(item); message-menu.close(); }
             edit(item) => { root.edit(item); root.focus-composer-of-menu(); message-menu.close(); }
             reply(item) => { root.reply(item); root.focus-composer-of-menu(); message-menu.close(); }
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
+            mark-unread(item) => { root.mark-unread(item); message-menu.close(); }
             pin-message(item) => { root.pin-message(item); message-menu.close(); }
             request-delete(item) => { root.request-delete(item); message-menu.close(); }
             end-poll(item) => { Polls.ask-end(item); message-menu.close(); }
@@ -2088,28 +2281,47 @@ export component YapfastWindow inherits Window {
                         open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                         can-join: root.can-join-server;
                         join-server => { root.open-join-server(); }
+                        unread-bottom: root.rail-unread-bottom;
                     }
                     // Channel sidebar: a lighter sheet held by the rail and the dock.
                     Rectangle {
                         width: root.sidebar-shown; background: Theme.sidebar;
-                        border-top-left-radius: 10px; border-bottom-left-radius: 10px;
+                        // Discord rules the sheet off from the rail, the title strip and
+                        // the conversation.
+                        border-top-left-radius: 10px;
+                        border-width: 1px; border-color: Theme.line;
                         clip: true;
                         VerticalLayout {
                             spacing: 0px;
                             Rectangle {
-                                height: 48px;
+                                // A server with a banner shows it here, as Discord
+                                // does, its name over the banner's top.
+                                height: root.header-server != "" && root.header-server-banner != "" ? 138px : 48px;
+                                if root.header-server != "" && root.header-server-banner != "": Image {
+                                    width: parent.width; height: parent.height; image-fit: cover;
+                                    source: PictureStore.picture(root.header-server-banner, PictureStore.revision);
+                                    accessible-role: none;
+                                    // Asked for as it shows, and again for another server's.
+                                    property <string> wanted: root.header-server-banner;
+                                    init => { if self.source.width == 0 { PictureStore.request(self.wanted); } }
+                                    changed wanted => { PictureStore.request(self.wanted); }
+                                }
+                                if root.header-server != "" && root.header-server-banner != "": Rectangle {
+                                    height: 56px; y: 0px;
+                                    background: @linear-gradient(180deg, #00000099 0%, #00000000 100%);
+                                }
                                 if root.header-server == "" && !root.dms-selected: Text { x: 16px; width: parent.width - 32px; text: root.sidebar-title; font-size: 16px; font-weight: 700; color: Theme.text; vertical-alignment: center; overflow: elide; }
                                 // Discord's search at the top of the DM list, which opens
                                 // the quick switcher.
                                 if root.dms-selected: Rectangle {
-                                    x: 8px; y: 10px; width: parent.width - 16px; height: 28px;
-                                    border-radius: 8px; border-width: 1px; border-color: Theme.line;
-                                    background: find-touch.has-hover ? Theme.hover : Theme.raised;
+                                    x: 8px; y: 8px; width: parent.width - 16px; height: 32px;
+                                    border-radius: 8px; border-width: 1px; border-color: Theme.active;
+                                    background: find-touch.has-hover ? Theme.active : Theme.hover;
                                     accessible-role: button; accessible-label: "Find or start a conversation";
                                     accessible-action-default => { root.open-switcher(); }
                                     Text {
                                         text: "Find or start a conversation"; font-size: 14px; font-weight: 500;
-                                        color: find-touch.has-hover ? Theme.text : Theme.secondary;
+                                        color: Theme.text;
                                         overflow: elide;
                                     }
                                     find-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-switcher(); } }
@@ -2118,6 +2330,7 @@ export component YapfastWindow inherits Window {
                                     x: 8px; y: 8px; width: parent.width - 16px - (root.header-invite ? 32px : 0px); height: 32px;
                                     name: root.sidebar-title; open: root.header-menu-open;
                                     icon-url: root.header-server-icon; initial: root.header-server-initial;
+                                    boost-tier: root.header-server-boost; badge: root.header-server-badge;
                                     clicked => { root.open-header-menu(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
@@ -2143,16 +2356,29 @@ export component YapfastWindow inherits Window {
                                 new-dm => { root.open-new-dm(); }
                                 can-invite: root.header-invite;
                                 invite(id) => { root.open-invite(id); }
-                                // Discord's channel list has no Browse Channels row.
-                                browse-offered: false; browsing: root.browse-open;
+                                // Discord's Channels & Roles, on a server with onboarding,
+                                // under its boost goal's bar.
+                                browse-offered: root.header-server-onboarding; boost-goal: root.header-server-boosts;
+                                browsing: root.browse-open;
                                 open-browse => { root.open-browse(); }
-                                voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
+                                voice-channel: root.voice-channel; voice-time: root.voice-time; participants: root.participants; sidebar-empty: root.sidebar-empty;
                                 select-room(id) => { root.select-room(id); }
                                 open-voice(id) => { root.open-conversation(id); }
                                 open-chat(id) => { root.open-chat(id); }
                                 open-friends => { root.open-friends(); }
                                 open-requests => { root.open-requests(); }
                                 open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                close-room(id) => { root.choose-menu(id, false, "close-dm"); }
+                                peek-stream(room, user, on, x, y) => {
+                                    root.peek-on-row = on;
+                                    if on {
+                                        root.peek-x = x; root.peek-y = y; root.peek-room = room; root.peek-user = user;
+                                        root.peek-on-card = false;
+                                        root.peek-stream(room, user, true);
+                                    } else {
+                                        peek-closer.running = true;
+                                    }
+                                }
                                 open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
                                 show-voice-person(room, id) => { root.show-voice-person(room, id); }
                                 open-voice-profile(person, x, y, width, height) => {
@@ -2167,6 +2393,8 @@ export component YapfastWindow inherits Window {
                                 arrange(place) => { root.arrange-room(place); }
                                 stop-arranging => { root.stop-arranging(); }
                                 toggle-category(category) => { root.toggle-category(category); }
+                                edit-channel(id) => { root.choose-menu(id, false, "edit-channel"); }
+                                create-in-category(category) => { root.choose-menu(category, false, "create-channel"); }
                                 open-category-menu(id, x, y) => {
                                     if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                 }
@@ -2192,21 +2420,26 @@ export component YapfastWindow inherits Window {
                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
                     open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                    can-denoise: root.discord-linked; denoising: root.noise-suppression != 2;
+                    open-noise(x, y) => { root.menu-x = x; root.menu-y = y; noise-menu.show(); }
                 }
-                // Account panel.
-                account-panel := Rectangle {
-                    height: 56px; background: Theme.panel;
+                // Account panel: a card across the rail and the sidebar, as in Discord.
+                Rectangle {
+                  height: 66px; background: Theme.rail;
+                  account-panel := Rectangle {
+                    x: 8px; y: 0px; width: parent.width - 16px; height: 58px;
+                    border-radius: 8px; border-width: 1px; border-color: Theme.line; background: Theme.panel;
                     if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                     HorizontalLayout {
                         padding-right: 8px; spacing: 2px;
                         Rectangle {
-                            width: 58px;
-                            Avatar { x: 19px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
+                            width: 50px;
+                            Avatar { x: 11px; y: (parent.height - self.height) / 2; size: 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; }
                             if root.account-presence != "": StatusDot {
-                                x: 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                x: 32px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
                             }
                             if root.account-presence == "": Rectangle {
-                                x: 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                x: 33px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
                                 Rectangle {
                                     width: 8px; height: 8px; border-radius: 4px;
                                     background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
@@ -2228,7 +2461,18 @@ export component YapfastWindow inherits Window {
                             VerticalLayout {
                                 alignment: center; padding-left: 6px; padding-right: 6px;
                                 Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-                                StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                                if !(account-touch.has-hover && root.account-username != "") && root.account-calling: HorizontalLayout {
+                                    spacing: 4px; alignment: start;
+                                    Middle {
+                                        Image {
+                                            source: root.account-call-line == "In voice" ? @image-url("icons/volume-2.svg") : @image-url("icons/phone.svg");
+                                            width: 12px; height: 12px; colorize: Theme.live;
+                                        }
+                                    }
+                                    StatusText { text: root.account-call-line; }
+                                }
+                                if !(account-touch.has-hover && root.account-username != "") && !root.account-calling: StatusText { text: root.account-status; emoji-url: root.account-status-emoji; }
+                                if account-touch.has-hover && root.account-username != "": StatusText { text: root.account-username; }
                             }
                             account-touch := TouchArea {
                                 enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
@@ -2243,6 +2487,7 @@ export component YapfastWindow inherits Window {
                             enabled: root.voice-ready || !root.voice-active;
                             clicked => { root.toggle-mute(); }
                             menu => {
+                                root.menu-below = false;
                                 root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
                                 root.refresh-devices(); input-menu.show();
                             }
@@ -2269,6 +2514,7 @@ export component YapfastWindow inherits Window {
                         }
                     }
                 }
+                }
             }
         }
         // Conversation.
@@ -2279,8 +2525,20 @@ export component YapfastWindow inherits Window {
                 Rectangle {
                     height: 48px;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px; spacing: 10px;
-                        if root.room-direct: Middle {
+                        padding-left: 16px; padding-right: 16px; spacing: 8px;
+                        // A group without an icon: two of its people, one over the
+                        // other, as its row in the DM list shows it.
+                        if root.room-direct && root.room-face-a != "": Middle {
+                            Rectangle {
+                                width: 26px; height: 26px;
+                                Avatar { x: 0px; y: 0px; size: 18px; initial: root.room-initial; tint: root.room-tint; picture-url: root.room-face-a; }
+                                Rectangle {
+                                    x: 8px; y: 8px; width: 18px; height: 18px; border-radius: 9px; background: Theme.chat;
+                                    Avatar { size: 14px; initial: root.room-initial; tint: root.room-tint; picture-url: root.room-face-b != "" ? root.room-face-b : root.room-face-a; }
+                                }
+                            }
+                        }
+                        if root.room-direct && root.room-face-a == "": Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
                                 Avatar { size: 26px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
@@ -2381,22 +2639,23 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.friends-open || root.requests-open: Middle {
-                            ActionButton { text: "Add Friend"; small: true; primary: true; clicked => { root.open-add-friend(); } }
+                            ActionButton { text: "Add Friend"; header: true; primary: true; clicked => { root.open-add-friend(); } }
                         }
                         if root.friends-open || root.requests-open: Rectangle { horizontal-stretch: 1; }
                         if (root.friends-open || root.requests-open) && !root.preview: Middle {
                             IconButton {
                                 icon: @image-url("icons/message-circle-plus.svg"); label: "New Group DM";
-                                size: 32px; glyph: 22px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 clicked => { root.open-new-dm(); }
                             }
                         }
-                        if root.dm-friend == 1 || root.dm-friend == 3: Middle {
+                        // Discord's header has no Add Friend, which the profile offers;
+                        // a request of theirs is still answered here.
+                        if root.dm-friend == 3: Middle {
                             ActionButton {
                                 icon: @image-url("icons/user-plus.svg");
-                                text: root.dm-friend == 1 ? "Add Friend" : "Accept Friend Request";
-                                label: root.dm-friend == 1 ? "Send friend request" : "Accept friend request";
-                                small: true; primary: root.dm-friend == 3;
+                                text: "Accept Friend Request"; label: "Accept friend request";
+                                small: true; primary: true;
                                 clicked => { root.befriend(root.dm-person); }
                             }
                         }
@@ -2411,18 +2670,29 @@ export component YapfastWindow inherits Window {
                         if root.can-call: Middle {
                             IconButton {
                                 icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join the call" : "Start a call";
-                                size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                size: 32px; glyph: 24px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-call(); }
+                            }
+                        }
+                        // Discord's Start Video Call, beside the voice call, in a
+                        // one-to-one DM.
+                        if root.can-call && !root.call-going && root.dm-person != "": Middle {
+                            IconButton {
+                                icon: @image-url("icons/video.svg"); label: "Start a video call";
+                                size: 32px; glyph: 24px; enabled: root.can-join; tip-side: 2;
+                                clicked => { root.start-video-call(root.dm-person); }
                             }
                         }
                         if root.can-list-threads: Middle {
                             IconButton {
                                 icon: @image-url("icons/thread.svg"); label: "Threads";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 tint: root.threads-open ? Theme.text : Theme.secondary;
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
                                     root.popover-y = self.absolute-position.y + self.height;
+                                    // One header popout at a time, as Discord's switch.
+                                    root.show-pins(false);
                                     root.show-threads(!root.threads-open);
                                 }
                             }
@@ -2431,7 +2701,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: root.room-muted ? @image-url("icons/bell-off.svg") : @image-url("icons/bell.svg");
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 clicked => {
                                     root.open-context-menu("notifications:" + root.room-id, false,
                                         self.absolute-position.x, self.absolute-position.y + self.height + 6px);
@@ -2441,7 +2711,7 @@ export component YapfastWindow inherits Window {
                         if root.can-pin: Middle {
                             IconButton {
                                 icon: @image-url("icons/pin.svg"); label: "Pinned messages";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 tint: root.pins-open ? Theme.text : Theme.secondary;
                                 // Where the pins open from elsewhere, such as a pin's notice.
                                 property <length> anchor-x: self.absolute-position.x + self.width;
@@ -2452,6 +2722,7 @@ export component YapfastWindow inherits Window {
                                 clicked => {
                                     root.popover-x = self.anchor-x;
                                     root.popover-y = self.anchor-y;
+                                    root.show-threads(false);
                                     root.show-pins(!root.pins-open);
                                 }
                             }
@@ -2460,7 +2731,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/user-plus.svg");
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 tint: root.add-people-open ? Theme.text : Theme.secondary;
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
@@ -2469,33 +2740,12 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                         }
-                        // The call's signal, in the conversation it's in, as in
-                        // Discord's voice panel.
-                        if root.voice-here && root.voice-ready && CallLink.measured: Middle {
-                            Rectangle {
-                                width: 32px; height: 32px;
-                                accessible-role: button; accessible-label: "Voice details";
-                                SignalIcon { width: 20px; height: 20px; quality: CallLink.quality; }
-                                LinkTouch {
-                                    tip-side: 2;
-                                    open(x, y, width, height) => { root.open-call-link(x, y, width, height); }
-                                }
-                            }
-                        }
-                        if root.members-available && root.room-direct: Middle {
-                            HeaderToggle {
-                                icon: @image-url("icons/users.svg"); text: root.members; open: root.member-list;
-                                label: root.member-list ? "Hide member list" : "Show member list";
-                                clicked => { root.toggle-members(); }
-                            }
-                        }
-                        // A server channel's, as Discord's: the icon alone, bright while
-                        // the list shows.
-                        if root.members-available && !root.room-direct: Middle {
+                        // As Discord's: the icon alone, bright while the list shows.
+                        if root.members-available: Middle {
                             IconButton {
                                 icon: @image-url("icons/users.svg");
                                 label: root.member-list ? "Hide member list" : "Show member list";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: 32px; glyph: 24px; tip-side: 2;
                                 tint: root.member-list ? Theme.text : Theme.secondary;
                                 clicked => { root.toggle-members(); }
                             }
@@ -2558,17 +2808,21 @@ export component YapfastWindow inherits Window {
                         if root.notice != "": Banner { text: root.notice; dismissed => { root.dismiss-notice(); } }
                         // Voice channel: a stage of participants, or an invitation to join.
                         // A DM's call shows the same above its messages.
-                        if root.voice-panel || root.call-shown: Rectangle {
+                        if root.voice-panel || root.call-shown: call-area := Rectangle {
                             // Above a DM's messages, a call takes less than half the room,
                             // more while watching a stream, and little while offering to join.
-                            vertical-stretch: root.voice-panel ? 1 : !root.voice-here ? 0 : root.call-focus >= 0 ? 1.8 : 0.8;
-                            min-height: root.voice-panel ? 0px : root.voice-here ? 260px : 210px;
-                            max-height: root.voice-panel || root.voice-here ? 100000px : 210px;
+                            property <bool> faces: !root.voice-panel && root.voice-here && root.call-faces && !root.sharing && !root.camera-on;
+                            vertical-stretch: root.voice-panel ? 1 : !root.voice-here || self.faces ? 0 : root.call-focus >= 0 ? 1.8 : 0.8;
+                            min-height: root.voice-panel ? 0px : self.faces ? 196px : root.voice-here ? 260px : 196px;
+                            max-height: root.voice-panel || (root.voice-here && !self.faces) ? 100000px : 196px;
                             background: Theme.stage;
                             if !root.voice-here && !root.voice-panel: CallInvite {
                                 call-people: root.call-people; call-note: root.call-note; call-incoming: root.call-incoming;
                                 call-room: root.call-room; can-join: root.can-join;
                                 answer-call(room, accept) => { root.answer-call(room, accept); }
+                                // Every DM call takes cameras, as Discord's do.
+                                can-film: !root.preview;
+                                join-with-video(room) => { root.join-call-with-video(room); }
                             }
                             if !root.voice-panel: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
                             if !root.voice-here && root.voice-panel: JoinVoice {
@@ -2578,11 +2832,15 @@ export component YapfastWindow inherits Window {
                             }
                             if root.voice-here: VerticalLayout {
                                 spacing: 0px;
-                                HorizontalLayout {
+                                if !call-area.faces: HorizontalLayout {
                                     padding: 16px; padding-bottom: 0px;
                                     Text { text: root.voice-description; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
                                 }
-                                if !root.stage-full: ParticipantGrid {
+                                if call-area.faces: CallFaces {
+                                    people: root.participants;
+                                    open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
+                                }
+                                if !root.stage-full && !call-area.faces: ParticipantGrid {
                                     participants: root.participants; frames: root.participant-frames;
                                     camera-starting: root.camera-starting; sharing: root.sharing; share-live: root.share-live;
                                     share-status: root.share-status; share-frame: root.share-frame;
@@ -2600,6 +2858,7 @@ export component YapfastWindow inherits Window {
                                     }
                                 }
                                 CallControls {
+                                    compact: call-area.width < 560px;
                                     muted: root.muted; deafened: root.deafened; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
                                     can-share: root.can-share; sharing: root.sharing;
                                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
@@ -2607,6 +2866,14 @@ export component YapfastWindow inherits Window {
                                     toggle-camera => { root.toggle-camera(); }
                                     toggle-mute => { root.toggle-mute(); }
                                     toggle-deafen => { root.toggle-deafen(); }
+                                    open-camera-menu(x, y) => {
+                                        root.menu-x = x; root.menu-y = y;
+                                        root.refresh-devices(); camera-menu.show();
+                                    }
+                                    open-input-menu(x, y) => {
+                                        root.menu-below = true; root.menu-x = x; root.menu-y = y;
+                                        root.refresh-devices(); input-menu.show();
+                                    }
                                     toggle-share => { root.toggle-share(); }
                                     open-share-menu(x, y) => { root.open-share-menu(x, y); }
                                     open-soundboard(x, y) => { root.open-soundboard(x, y); }
@@ -2643,6 +2910,34 @@ export component YapfastWindow inherits Window {
                             leave-post => { root.leave-post(); }
                             stay-post => { root.stay-post(); }
                             open-link(link) => { root.open-link(link); }
+                        }
+                        // A forum post's bar, as Discord's: React to Post on the left;
+                        // following it, its link and the way to its start on the right.
+                        if root.room-selected && root.room-parent-forum && !root.voice-panel: HorizontalLayout {
+                            padding-left: 16px; padding-right: 16px; padding-top: 8px; padding-bottom: 4px; spacing: 6px;
+                            vertical-stretch: 0;
+                            if root.messages.length > 0 && root.messages[0].can-react && root.composer-enabled: ActionButton {
+                                small: true; icon: @image-url("icons/smile-plus.svg"); text: "React to Post";
+                                clicked => {
+                                    root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
+                                    root.open-picker(root.messages[0].item);
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            if root.post-follow-offered: ActionButton {
+                                small: true;
+                                icon: root.post-following ? @image-url("icons/check.svg") : @image-url("icons/bell.svg");
+                                text: root.post-following ? "Following" : "Follow";
+                                clicked => { root.choose-menu(root.room-id, false, root.post-following ? "leave-thread" : "join-thread"); }
+                            }
+                            IconButton {
+                                size: 28px; glyph: 16px; icon: @image-url("icons/link.svg"); label: "Copy Link"; tip-side: 2;
+                                clicked => { root.choose-menu(root.room-id, false, "copy-link"); }
+                            }
+                            if root.messages.length > 0: IconButton {
+                                size: 28px; glyph: 16px; icon: @image-url("icons/arrow-up.svg"); label: "Jump to the start"; tip-side: 2;
+                                clicked => { root.jump-to(root.messages[0].item); }
+                            }
                         }
                         // Text conversation.
                         Rectangle {
@@ -2772,13 +3067,14 @@ export component YapfastWindow inherits Window {
                                             // A message that calls on this account is tinted marigold with a
                                             // marigold edge, below the history notice and the dividers above it:
                                             // a mention always, a reply to its message while it's new.
-                                            property <length> head: (index == 0 && root.room-ready ? 42px : 0px)
+                                            property <length> head: (index == 0 && root.room-ready ? (root.history-start && !root.room-direct && root.room-parent == "" ? (root.room-editable ? 240px : 200px) : 42px) : 0px)
                                                 + (message.day != "" || message.unread-start ? 26px : 0px);
                                             if message.highlighted: Rectangle {
                                                 y: parent.top + (parent.head > 0 ? col.padding-top + parent.head : 0px);
                                                 height: parent.height - self.y - parent.tail;
-                                                background: Theme.accent.transparentize(0.9);
-                                                Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                                                // Discord's mention gold, whatever the theme.
+                                                background: #f0b2321a;
+                                                Rectangle { x: 0px; width: 2px; background: #f0b232; }
                                             }
                                             // The keyboard's message has a marigold edge.
                                             if self.lit && root.browsing: Rectangle { x: 0px; y: parent.top; width: 3px; height: parent.height - parent.top; background: Theme.accent; }
@@ -2809,7 +3105,9 @@ export component YapfastWindow inherits Window {
                                                     if index == 0 && root.room-ready: HistoryEdge {
                                                         loading: root.loading-history; failed: root.history-failed; start: root.history-start;
                                                         enabled: !root.busy && !root.preview; room-direct: root.room-direct; room-name: root.room-name;
-                                                        room-thread: root.room-parent != "";
+                                                        room-thread: root.room-parent != ""; room-post: root.room-parent-forum;
+                                                        room-editable: root.room-editable;
+                                                        edit-channel => { root.choose-menu(root.room-id, false, "edit-channel"); }
                                                         earlier => { root.earlier(); }
                                                     }
                                                     // A new day's date, and the "New" divider in marigold above
@@ -2846,12 +3144,17 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         open-link(link) => { root.open-link(link); }
                                                         open-thread(room) => { root.open-aside(room); }
+                                                        open-room(room) => { root.select-room(room); }
                                                         react(item, key) => { root.react(item, key); }
+                                                        add-reaction(item, x, y, width, height) => { root.anchor(x, y, width, height, false); root.open-picker(item); }
                                                         retry(item) => { root.retry(item); }
                                                         cancel-send(item) => { root.cancel-send(item); }
                                                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                                         view-image(id, index) => { root.view-image(id, index); }
                                                         save-attachment(id, index) => { root.save-attachment(id, index); }
+                                                        room-owner: root.room-owner;
+                                                        edit-message(item) => { root.edit(item); root.focus-composer(); }
+                                                        remove-attachment(item, index) => { root.remove-attachment(item, index); }
                                                         // A right click on a picture opens the message's menu with it.
                                                         media-menu(id, index, video, x, y) => {
                                                             if !message.deleted && message.delivery == "" {
@@ -2879,26 +3182,13 @@ export component YapfastWindow inherits Window {
                                                 drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
                                                 actions := HorizontalLayout {
                                                     padding: 3px; spacing: 0px;
-                                                    if root.confirm-delete == message.item: HorizontalLayout {
-                                                        spacing: 4px; padding-left: 8px;
-                                                        Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
-                                                        ActionButton { text: "Delete"; danger: true; small: true; clicked => { root.confirm-delete-message(); } }
-                                                        ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-delete(); } }
-                                                    }
-                                                    // Frequent reactions, then the picker, Edit on your own message or
-                                                    // Reply on someone else's, and everything else under More.
+                                                    // The reaction picker (the frequent reactions left out, as you
+                                                    // asked), Edit on your own message or Reply on someone else's,
+                                                    // and everything else under More.
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
                                                         if message.can-react && root.composer-enabled: HorizontalLayout {
                                                             spacing: 0px;
-                                                            for cell in root.bar-reactions: EmojiButton {
-                                                                emoji: cell; font: root.emoji-font;
-                                                                clicked => { root.react(message.item, cell.key); }
-                                                            }
-                                                            Rectangle {
-                                                                width: 9px;
-                                                                Rectangle { width: 1px; height: 20px; background: Theme.line; }
-                                                            }
                                                             IconButton {
                                                                 icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
                                                                 clicked => {
@@ -2909,6 +3199,8 @@ export component YapfastWindow inherits Window {
                                                         }
                                                         if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        // Then Forward, as in Discord's bar.
+                                                        if message.can-forward && root.forward-allowed: IconButton { icon: @image-url("icons/forward.svg"); label: "Forward"; clicked => { root.start-forward(message.item); } }
                                                         IconButton {
                                                             icon: @image-url("icons/ellipsis.svg"); label: "More";
                                                             clicked => {
@@ -2959,7 +3251,7 @@ export component YapfastWindow inherits Window {
                                 active: root.friends-active;
                                 show-tip: root.friends-tip;
                                 close-tip => { root.close-friends-tip(); }
-                                open-blocked => { root.open-settings(); root.settings-section = 4; }
+                                open-blocked => { root.open-settings(); root.settings-section = 13; }
                                 open-profile(id, x, y, width, height) => {
                                     root.anchor(x, y, width, height, false);
                                     root.profile-at-pointer = true;
@@ -3021,7 +3313,8 @@ export component YapfastWindow inherits Window {
                             visible: !root.voice-panel && !root.room-forum && root.room-selected;
                             min-height: 0px;
                             max-height: root.voice-panel || root.room-forum || !root.room-selected ? 0px : 100000px;
-                            padding-left: 16px; padding-right: 16px; padding-top: 0px; padding-bottom: 0px;
+                            // Discord's composer: 8px from the conversation's edges.
+                            padding-left: 8px; padding-right: 8px; padding-top: 0px; padding-bottom: 0px;
                             spacing: 0px; vertical-stretch: 0;
                             if root.room-request: RequestBar {
                                 request-title: root.request-title;
@@ -3041,11 +3334,12 @@ export component YapfastWindow inherits Window {
                             }
                             composer-box := Rectangle {
                                 visible: !root.room-request;
-                                min-height: root.room-request ? 0px : 48px; max-height: root.room-request ? 0px : 100000px;
+                                min-height: root.room-request ? 0px : 56px; max-height: root.room-request ? 0px : 100000px;
                                 background: Theme.field;
-                                border-radius: 10px;
-                                border-top-left-radius: root.compose-label != "" ? 0px : 10px;
-                                border-top-right-radius: root.compose-label != "" ? 0px : 10px;
+                                border-width: 1px; border-color: Theme.active;
+                                border-radius: 8px;
+                                border-top-left-radius: root.compose-label != "" ? 0px : 8px;
+                                border-top-right-radius: root.compose-label != "" ? 0px : 8px;
                                 VerticalLayout {
                                     spacing: 0px;
                                     // Files waiting to go with the message, in a row that scrolls sideways.
@@ -3062,16 +3356,17 @@ export component YapfastWindow inherits Window {
                                         }
                                     }
                                     HorizontalLayout {
-                                        padding-left: 10px; padding-right: 8px; spacing: 6px;
+                                        padding-left: 12px; padding-right: 13px; spacing: 8px;
                                         // The buttons stay on the last line as the composer grows.
-                                        VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                        if root.composer-locked: Rectangle { width: 4px; }
+                                        if !root.composer-locked: VerticalLayout {
+                                            alignment: end; padding-bottom: 12px; padding-right: 6px;
                                             // Where threads can start, it opens Discord's menu
                                             // of uploading a file or starting a thread.
                                             IconButton {
-                                                icon: @image-url("icons/circle-plus.svg");
+                                                icon: @image-url("icons/plus.svg");
                                                 label: root.can-start-threads || root.can-create-polls ? "More options" : "Attach files";
-                                                glyph: 22px;
+                                                glyph: 24px;
                                                 enabled: root.can-attach || root.can-start-threads || root.can-create-polls;
                                                 clicked => {
                                                     if root.can-start-threads || root.can-create-polls {
@@ -3086,7 +3381,7 @@ export component YapfastWindow inherits Window {
                                         }
                                         composer := Composer {
                                             text <=> root.draft; enabled: root.composer-enabled; label: "Message";
-                                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected && !root.room-direct && root.room-parent == "" ? "Message #" + root.room-name : root.room-selected ? "Message " + root.room-name : "Write a message";
+                                            placeholder: root.composer-locked ? "You do not have permission to send messages in this channel." : root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected && !root.room-direct && root.room-parent == "" ? "Message #" + root.room-name : root.room-selected && root.room-parent-forum ? "Send a message in \"" + root.room-name + "\"" : root.room-selected && root.dm-person != "" ? "Message @" + root.room-name : root.room-selected ? "Message " + root.room-name : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
                                             suggesting: root.mentions.length > 0 || root.emoji-suggestions.length > 0;
@@ -3118,9 +3413,9 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
-                                        // As Discord's: the GIFs, then the emoji, in one picker.
-                                        if root.can-pick-gifs: VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                        // As Discord's: the GIFs, the stickers, then the emoji, in one picker.
+                                        if root.can-pick-gifs && !root.composer-locked: VerticalLayout {
+                                            alignment: end; padding-bottom: 12px;
                                             gif-button := IconButton {
                                                 icon: @image-url("icons/gif.svg"); label: "Open GIF picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
@@ -3131,8 +3426,22 @@ export component YapfastWindow inherits Window {
                                                 }
                                             }
                                         }
+                                        if root.can-pick-gifs && !root.composer-locked: VerticalLayout {
+                                            alignment: end; padding-bottom: 12px;
+                                            IconButton {
+                                                icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
+                                                glyph: 22px; enabled: root.composer-enabled;
+                                                tint: root.expressions-open && root.expression-tab == 2 ? Theme.text : Theme.secondary;
+                                                clicked => {
+                                                    root.anchor(emoji-button.absolute-position.x, emoji-button.absolute-position.y, emoji-button.width, emoji-button.height, false);
+                                                    root.open-expressions(2);
+                                                }
+                                            }
+                                        }
                                         VerticalLayout {
-                                            alignment: end; padding-bottom: 8px;
+                                            alignment: end; padding-bottom: 12px;
+                                            visible: !root.composer-locked;
+                                            width: root.composer-locked ? 0px : self.preferred-width;
                                             emoji-button := IconButton {
                                                 icon: @image-url("icons/smile.svg"); label: "Add an emoji";
                                                 glyph: 22px; enabled: root.composer-enabled;
@@ -3161,7 +3470,7 @@ export component YapfastWindow inherits Window {
                                 if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
-                            if root.composer-hint == "": Rectangle { height: 16px; }
+                            if root.composer-hint == "": Rectangle { height: 8px; }
                         }
                     }
                     if root.search-open: SearchPanel {
@@ -3230,16 +3539,20 @@ export component YapfastWindow inherits Window {
                         link-clicked(link, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-link(link); }
                         open-link(link) => { root.open-link(link); }
                         open-thread(room) => { root.open-aside(room); }
+                        open-room(room) => { root.select-room(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
                         save-attachment(id, index) => { root.save-attachment(id, index); }
+                        remove-attachment(item, index) => { root.remove-attachment(item, index); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: 240px; rows: root.roster; note: root.roster-note; selected: root.profile-member;
+                        width: 264px; rows: root.roster; note: root.roster-note; selected: root.profile-member;
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                        can-invite: root.can-add-people && root.dm-person == "";
+                        invite => { root.open-add-people(); }
                     }
                     if root.profile-docked: Rectangle {
                         width: 300px;
@@ -3417,11 +3730,14 @@ export component YapfastWindow inherits Window {
         y: root.title-height; height: root.height - root.title-height;
         motion: settings-motion.amount;
         settings-section <=> root.settings-section;
-        discord-build: root.discord-build; preview: root.preview;
+        discord-build: root.discord-build; matrix-build: root.matrix-build; preview: root.preview;
+        account-name: root.account-name; account-initial: root.account-initial;
+        account-tint: root.account-tint; account-picture: root.account-picture;
+        edit-profile => { root.settings-open = false; root.edit-profile(); }
         close => { root.settings-open = false; }
         refresh-devices => { root.refresh-devices(); }
         if root.settings-section == 0: AccountSettings {
-            account-name: root.account-name; account-status: root.account-status; account-status-emoji: root.account-status-emoji;
+            account-name: root.account-name; account-username: root.account-username; account-status: root.account-status; account-status-emoji: root.account-status-emoji;
             account-initial: root.account-initial; account-tint: root.account-tint; account-picture: root.account-picture;
             storage: root.storage; preview: root.preview; online: root.online; busy: root.busy; sending: root.sending;
             discord-linked: root.discord-linked; has-custom-status: root.has-custom-status;
@@ -3436,8 +3752,6 @@ export component YapfastWindow inherits Window {
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
             can-save: root.theme-can-save;
-            system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
-            title-bar-toggled => { root.title-bar-toggled(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
@@ -3449,6 +3763,8 @@ export component YapfastWindow inherits Window {
             delete-theme => { root.delete-theme(); }
         }
         if root.settings-section == 1: VoiceSettings {
+            mic-testing: root.mic-testing; mic-level: root.input-level; mic-note: root.meter-note;
+            mic-test(on) => { root.mic-testing = on; }
             microphones: root.microphones; microphone-index <=> root.microphone-index;
             speakers: root.speakers; speaker-index <=> root.speaker-index;
             cameras: root.cameras; camera-index <=> root.camera-index;
@@ -3474,14 +3790,21 @@ export component YapfastWindow inherits Window {
             refresh-devices => { root.refresh-devices(); }
             preferences-changed => { root.preferences-changed(); }
         }
-        if root.settings-section == 2: MessageSettings {
+        // Appearance's Messages and Chat Box, after its theme.
+        if root.settings-section == 7 && !root.theme-editor: Rectangle { height: 1px; background: Theme.line; }
+        if (root.settings-section == 7 && !root.theme-editor) || root.settings-section == 9 || root.settings-section == 10 || root.settings-section == 12: MessageSettings {
+            part: root.settings-section == 7 ? 0 : root.settings-section == 9 ? 1 : root.settings-section == 10 ? 2 : 3;
             message-font-size: root.message-font-size;
             twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; text-size <=> root.text-size;
             link-previews <=> root.link-previews; share-typing <=> root.share-typing;
             animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
+            profile-looks <=> root.profile-looks;
+            show-hidden-channels: root.show-hidden-channels; sync-discord-reads: root.sync-discord-reads;
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
+            show-hidden-channels-toggled(shown) => { root.show-hidden-channels = shown; root.show-hidden-channels-toggled(shown); }
+            sync-discord-reads-toggled(sync) => { root.sync-discord-reads = sync; root.sync-discord-reads-toggled(sync); }
         }
         if root.settings-section == 3: NotificationSettings {
             notifications <=> root.notifications; notification-text <=> root.notification-text;
@@ -3489,26 +3812,35 @@ export component YapfastWindow inherits Window {
             matrix: root.matrix-build; discord: root.discord-linked;
             preferences-changed => { root.preferences-changed(); }
         }
-        if root.settings-section == 5: SoundSettings {
+        // Discord's Notifications page ends with its sounds.
+        if root.settings-section == 3: Rectangle { height: 1px; background: Theme.line; }
+        if root.settings-section == 3: SoundSettings {
             sound-set <=> root.sound-set; volume <=> root.sound-volume;
             adjust-each <=> root.adjust-each-sound; each: root.each-sound;
             preferences-changed => { root.preferences-changed(); }
             each-changed(index, percent) => { root.each-sound-changed(index, percent); }
             play(index) => { root.play-sound(index); }
         }
-        if root.settings-section == 6: AdvancedSettings {
+        // System's General, and Voice & Video's Streaming after its voice.
+        if root.settings-section == 1: Rectangle { height: 1px; background: Theme.line; }
+        if root.settings-section == 6 || root.settings-section == 1: AdvancedSettings {
+            part: root.settings-section == 6 ? 0 : 1;
             gpu-rendering <=> root.gpu-rendering; gpu-running: root.gpu-running;
             gpu-encoding <=> root.gpu-encoding;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
-            profile-looks <=> root.profile-looks;
             start-on-sign-in <=> root.start-on-sign-in; autostart-available: root.autostart-available;
             discord-links <=> root.discord-links; discord-links-available: root.discord-links-available;
+            system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
+            title-bar-toggled => { root.title-bar-toggled(); }
             preferences-changed => { root.preferences-changed(); }
             restart => { root.restart(); }
         }
-        if root.settings-section == 8: GameActivitySettings {
+        if root.settings-section == 8 || root.settings-section == 11: GameActivitySettings {
+            part: root.settings-section == 11 ? 0 : 1;
             shown: root.show-game; linked: root.discord-linked; executables: root.game-executables;
+            show-idle: root.show-idle;
+            show-idle-toggled(shown) => { root.show-idle = shown; root.show-idle-toggled(shown); }
             toggled(shown) => { root.show-game-toggled(shown); }
             save(index, executable, text) => { return root.save-game-executable(index, executable, text); }
             remove(index) => { root.remove-game-executable(index); }
@@ -3519,18 +3851,14 @@ export component YapfastWindow inherits Window {
             link-discord-token(token) => { root.link-discord-token(token); }
             open-discord-captcha => { root.open-discord-captcha(); }
         }
-        if root.settings-section == 4 && root.discord-linked: DiscordSettings {
+        if (root.settings-section == 4 || root.settings-section == 13) && root.discord-linked: DiscordSettings {
+            part: root.settings-section == 13 ? 0 : 1;
             matrix-build: root.matrix-build;
-            show-hidden-channels: root.show-hidden-channels; sync-discord-reads: root.sync-discord-reads;
-            show-idle: root.show-idle;
             unlink-discord => { root.unlink-discord(); }
-            show-idle-toggled(shown) => { root.show-idle = shown; root.show-idle-toggled(shown); }
             hide-blocked: root.hide-blocked;
             hide-blocked-toggled(hide) => { root.hide-blocked = hide; root.hide-blocked-toggled(hide); }
             blocked: root.blocked-people;
             unblock(id) => { root.unblock(id); }
-            show-hidden-channels-toggled(shown) => { root.show-hidden-channels = shown; root.show-hidden-channels-toggled(shown); }
-            sync-discord-reads-toggled(sync) => { root.sync-discord-reads = sync; root.sync-discord-reads-toggled(sync); }
         }
     }
     // A Discord server's settings, and a channel's, on the same card.
@@ -3590,12 +3918,42 @@ export component YapfastWindow inherits Window {
             close => { root.topic-open = false; }
         }
     }
+    // The Inbox, under its button at the title bar's right. Opening a
+    // mention closes it, as does Escape or a click outside.
+    inbox-motion := PopupMotion { open: root.inbox-open; }
+    if inbox-motion.shown: Rectangle {
+        TouchArea { clicked => { root.show-inbox(false); } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.show-inbox(false); return accept; }
+                return reject;
+            }
+        }
+        InboxPopover {
+            opacity: Popup.opacity(inbox-motion.amount); transform-scale: Popup.scale(inbox-motion.amount);
+            x: max(8px, root.width - self.width - 56px);
+            y: max(root.title-height, 32px) + 4px;
+            height: min(self.fit, 640px, root.height - self.y - 16px);
+            mentions: root.inbox; note: root.inbox-note;
+            jump(room, item) => { root.show-inbox(false); root.jump-in-room(room, item); }
+            dismiss(item) => { root.dismiss-mention(item); }
+            more: root.inbox-more; loading-more: root.inbox-loading-more;
+            load-more => { root.more-mentions(); }
+            open-link(link) => { root.open-link(link); }
+            close => { root.show-inbox(false); }
+        }
+    }
     // The open DM's pinned messages, under the pin button. Jumping to one
     // closes them, as does Escape or a click outside.
     pins-motion := PopupMotion { open: root.pins-open; }
     if pins-motion.shown: Rectangle {
-        TouchArea { clicked => { root.show-pins(false); } }
+        // Below the title strip and the conversation's header, whose
+        // buttons stay clickable, so another popout opens in its place.
+        TouchArea { y: root.title-height + 48px; height: max(0px, parent.height - self.y); clicked => { root.show-pins(false); } }
         FocusScope {
+            // Clicks on the header reach its buttons through it.
+            focus-on-click: false;
             init => { self.focus(); }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.show-pins(false); return accept; }
@@ -3608,7 +3966,7 @@ export component YapfastWindow inherits Window {
             y: root.popover-y + 6px;
             // As tall as its pins, up to 560px, within the window.
             height: min(self.fit, 560px, root.height - self.y - 16px);
-            pins: root.pins; note: root.pins-note;
+            pins: root.pins; note: root.pins-note; empty: root.pins-empty;
             jump(item) => { root.show-pins(false); root.jump-to(item); }
             open-link(link) => { root.open-link(link); }
             close => { root.show-pins(false); }
@@ -3618,8 +3976,12 @@ export component YapfastWindow inherits Window {
     // closes them, as does Escape or a click outside.
     threads-motion := PopupMotion { open: root.threads-open; }
     if threads-motion.shown: Rectangle {
-        TouchArea { clicked => { root.show-threads(false); } }
+        // Below the title strip and the conversation's header, whose
+        // buttons stay clickable, so another popout opens in its place.
+        TouchArea { y: root.title-height + 48px; height: max(0px, parent.height - self.y); clicked => { root.show-threads(false); } }
         FocusScope {
+            // Clicks on the header reach its buttons through it.
+            focus-on-click: false;
             init => { self.focus(); }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.show-threads(false); return accept; }
@@ -3729,18 +4091,50 @@ export component YapfastWindow inherits Window {
                 return reject;
             }
         }
-        ProfileCard {
+        // As Discord's full profile: the card on the left, tabs on the right.
+        Rectangle {
             opacity: Popup.opacity(large-profile-motion.amount); transform-scale: Popup.scale(large-profile-motion.amount);
-            large: true;
-            width: min(600px, root.width - 64px); limit: root.height - 64px;
+            width: min(960px, root.width - 64px); height: min(800px, root.height - 64px);
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-            data: root.profile;
-            close => { root.close-profile(); }
-            befriend => { root.befriend(root.profile.id); }
-            open-link(link) => { root.open-link(link); }
-            open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
-            // In the full profile, a friend's opens full too.
-            open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+            background: Theme.chat; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            clip: true;
+            TouchArea { }
+            HorizontalLayout {
+                padding: 48px; padding-right: 48px; spacing: 32px;
+                ProfileCard {
+                    large: true; split: true;
+                    width: min(400px, parent.width / 2); limit: parent.height - 96px;
+                    data: root.profile;
+                    server-icon-url: root.header-server-icon;
+                    message => { root.close-profile(); root.message-friend(root.profile.id); }
+                    more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
+                    close => { root.close-profile(); }
+                    befriend => { root.befriend(root.profile.id); }
+                    open-link(link) => { root.open-link(link); }
+                    open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
+                    open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+                }
+                ProfileTabs {
+                    horizontal-stretch: 1;
+                    data: root.profile;
+                    open-link(link) => { root.open-link(link); }
+                    open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
+                    // In the full profile, a friend's opens full too.
+                    open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
+                    message => { root.close-profile(); root.message-friend(root.profile.id); }
+                    close => { root.close-profile(); }
+                }
+            }
+            // Discord's round × at the full profile's top right.
+            Rectangle {
+                x: parent.width - 24px - self.width; y: 24px - 8px; width: 32px; height: 32px; border-radius: 16px;
+                background: close-touch.has-hover ? Theme.active : Theme.raised;
+                accessible-role: button; accessible-label: "Close profile";
+                accessible-action-default => { root.close-profile(); }
+                Image { source: @image-url("icons/x.svg"); width: 18px; height: 18px; colorize: Theme.text; }
+                close-touch := TouchArea { mouse-cursor: pointer; clicked => { root.close-profile(); } }
+            }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking
@@ -3773,6 +4167,11 @@ export component YapfastWindow inherits Window {
         y: root.title-height; height: root.height - root.title-height;
         viewer-image: root.viewer-image; viewer-frames: root.viewer-frames; viewer-delays: root.viewer-delays;
         viewer-width: root.viewer-width; viewer-height: root.viewer-height; viewer-name: root.viewer-name;
+        author: root.viewer-author; author-picture: root.viewer-author-picture;
+        author-color: root.viewer-author-color; author-colored: root.viewer-author-colored;
+        when: root.viewer-when; link: root.viewer-link;
+        forward(item) => { root.close-image(); root.start-forward(item); }
+        open-link(link) => { root.open-link(link); }
         viewer-position: root.viewer-position; viewer-note: root.viewer-note;
         viewer-item: root.viewer-item; viewer-index: root.viewer-index; preview: root.preview;
         close-image => { root.close-image(); }
@@ -3865,6 +4264,82 @@ export component YapfastWindow inherits Window {
         save => { root.answer-move-sync(true); }
         alternative => { root.answer-move-sync(false); }
         close => { root.close-move-sync(); }
+    }
+    // Discord's stream preview beside someone streaming, while pointed at.
+    // Discord's stream popout, measured from Discord's: "Streaming Now" and
+    // the LIVE pill, the preview in 16:9, then the green Watch Stream.
+    if root.peek-open: Rectangle {
+        x: min(root.peek-x, root.width - self.width - 8px); y: min(root.peek-y, root.height - self.height - 8px);
+        width: 280px; height: peek-layout.preferred-height; border-radius: 10px;
+        background: Theme.chat; border-width: 1px; border-color: Theme.line;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000080;
+        accessible-role: groupbox; accessible-label: "Streaming Now: " + root.peek-name;
+        peek-touch := TouchArea {
+            changed has-hover => {
+                root.peek-on-card = self.has-hover;
+                if !self.has-hover { peek-closer.running = true; }
+            }
+        }
+        peek-layout := VerticalLayout {
+            padding: 16px; padding-top: 12px; spacing: 8px;
+            HorizontalLayout {
+                height: 20px;
+                Text { text: "Streaming Now"; color: Theme.muted; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                Middle { Rectangle { width: live-text.preferred-width + 12px; height: 18px; border-radius: 9px; background: Theme.danger; live-text := Text { text: "LIVE"; color: #ffffff; font-size: 12px; font-weight: 800; } } }
+            }
+            Rectangle {
+                height: 140px; border-radius: 4px; clip: true; background: #000000;
+                if root.peek-url != "": Image {
+                    width: parent.width; height: parent.height; image-fit: cover;
+                    source: PictureStore.picture(root.peek-url, PictureStore.revision);
+                    init => { if self.source.width == 0 { PictureStore.request(root.peek-url); } }
+                }
+                if root.peek-url == "": Text { text: root.peek-answered ? "No preview available" : "Loading preview..."; color: Theme.muted; font-size: 13px; }
+            }
+            if root.peek-has-game: HorizontalLayout {
+                spacing: 8px; height: 36px;
+                Rectangle {
+                    width: 32px; height: 32px; y: 2px; border-radius: 8px; clip: true; background: Theme.raised;
+                    if root.peek-game.large-url != "": Image {
+                        width: parent.width; height: parent.height; image-fit: cover;
+                        source: PictureStore.picture(root.peek-game.large-url, PictureStore.revision);
+                        init => { if self.source.width == 0 { PictureStore.request(root.peek-game.large-url); } }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center; spacing: 1px;
+                    Text { text: root.peek-game.name; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+                    if root.peek-game.start > 0: HorizontalLayout {
+                        spacing: 4px; alignment: start;
+                        Middle { Image { source: @image-url("icons/gamepad-filled.svg"); width: 13px; height: 13px; colorize: Theme.live; } }
+                        Text { text: ActivityClock.elapsed(root.peek-game.start); color: Theme.live; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                    }
+                }
+            }
+            Rectangle {
+                height: 32px; border-radius: 8px;
+                background: watch-touch.has-hover ? #00753c : #008545;
+                accessible-role: button; accessible-label: "Watch Stream";
+                accessible-action-default => { root.watch-peek(); }
+                HorizontalLayout {
+                    alignment: center; spacing: 6px;
+                    Middle { Image { source: @image-url("icons/screen-share.svg"); width: 16px; height: 16px; colorize: #ffffff; } }
+                    Text { text: "Watch Stream"; color: #ffffff; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                }
+                watch-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.watch-peek(); }
+                }
+            }
+        }
+    }
+    // Deleting a message asks first, in Discord's dialog.
+    delete-motion := PopupMotion { open: root.confirm-delete != ""; }
+    if delete-motion.shown: ChannelDialog {
+        motion: delete-motion.amount;
+        prompt: root.delete-prompt;
+        save => { root.confirm-delete-message(); }
+        close => { root.cancel-delete(); }
     }
     leave-motion := PopupMotion { open: root.leave-open; }
     if leave-motion.shown: ChannelDialog {
@@ -4097,13 +4572,15 @@ export component YapfastWindow inherits Window {
         place: root.workspace ? root.title-place : "Yapfast";
         place-url: root.workspace ? root.title-url : "";
         place-round: root.title-round;
-        place-icon: root.title-glyph == 1 ? @image-url("icons/users.svg") : root.title-glyph == 2 ? @image-url("icons/inbox.svg") : @image-url("");
+        place-icon: root.title-glyph == 1 ? @image-url("icons/users.svg") : root.title-glyph == 2 ? @image-url("icons/inbox.svg") : root.title-glyph == 3 ? @image-url("icons/discord.svg") : @image-url("");
         focused: root.window-focused; maximized: root.window-maximized;
         frame: root.own-title-bar;
         can-back: root.can-go-back; can-forward: root.can-go-forward;
         back => { root.go-back(); }
         forward => { root.go-forward(); }
         help => { root.open-help(); }
+        can-inbox: root.can-inbox; inbox-open: root.inbox-open;
+        inbox => { root.show-inbox(!root.inbox-open); }
         move-window => { root.move-window(); }
         minimize-window => { root.minimize-window(); }
         maximize-window => { root.maximize-window(); }

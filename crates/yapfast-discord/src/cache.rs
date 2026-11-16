@@ -876,6 +876,7 @@ mod tests {
             user_id: Some("1".into()),
             account: Some(Account {
                 name: "Alice".into(),
+                username: "alice".into(),
                 avatar: "a.png".into(),
                 premium_type: 0,
                 mfa_enabled: false,

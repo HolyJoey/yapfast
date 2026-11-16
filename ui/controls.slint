@@ -13,12 +13,14 @@ export component ActionButton inherits Rectangle {
     /// Green, as a Discord app's button for a positive action.
     in property <bool> success;
     in property <bool> small;
+    /// In a conversation's header, sized as Discord's Add Friend there.
+    in property <bool> header;
     callback clicked;
     min-width: max(root.small ? 28px : 36px, content.preferred-width);
-    min-height: root.small ? 28px : 36px;
+    min-height: root.header ? 32px : root.small ? 28px : 36px;
     max-height: self.min-height;
     vertical-stretch: 0;
-    border-radius: 6px;
+    border-radius: root.header ? 8px : 6px;
     background: !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
         : root.primary ? (pointer.has-hover ? Theme.accent-hover : Theme.accent)
         : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
@@ -37,14 +39,14 @@ export component ActionButton inherits Rectangle {
         : root.primary || root.success ? Theme.on-accent : root.danger ? Theme.on-danger
         : root.ghost && !pointer.has-hover ? Theme.secondary : Theme.text;
     content := HorizontalLayout {
-        padding-left: root.small ? 10px : 16px; padding-right: self.padding-left;
+        padding-left: root.header ? 12px : root.small ? 10px : 16px; padding-right: self.padding-left;
         spacing: 8px; alignment: center;
         if root.icon.width > 0: Image {
             source: root.icon; width: root.small ? 16px : 18px; image-fit: contain;
             colorize: root.ink;
         }
         if root.text != "": Text {
-            text: root.text; color: root.ink; font-size: root.small ? 14px : 15px; font-weight: 700;
+            text: root.text; color: root.ink; font-size: root.header ? 16px : root.small ? 14px : 15px; font-weight: root.header ? 500 : 700;
             vertical-alignment: center; overflow: elide;
         }
     }
@@ -315,6 +317,8 @@ export component VoiceSpot inherits Rectangle {
     in property <length> font-size: 13px;
     callback clicked;
     property <string> place: root.channel + " — " + root.server;
+    /// What it says after the speaker: where, unless a row says less.
+    in property <string> words: root.place;
     horizontal-stretch: 0;
     accessible-role: button;
     accessible-label: "Go to " + root.channel + " in " + root.server;
@@ -326,7 +330,7 @@ export component VoiceSpot inherits Rectangle {
             y: (parent.height - self.height) / 2; colorize: Theme.live;
         }
         if !root.compact: Text {
-            text: root.place; color: pointer.has-hover ? Theme.text : Theme.muted;
+            text: root.words; color: pointer.has-hover ? Theme.text : Theme.muted;
             font-size: root.font-size; overflow: elide;
         }
     }
@@ -514,6 +518,9 @@ export component MenuItem inherits Rectangle {
     /// A second line under the text, such as what a submenu has chosen.
     in property <string> subtitle;
     in property <image> icon;
+    /// A coloured dot before the text, as Discord marks a role; none while
+    /// transparent.
+    in property <color> dot: transparent;
     /// The current choice, marked with a check in place of its icon; or
     /// with `checkbox`, ticked.
     in property <bool> checked;
@@ -546,16 +553,22 @@ export component MenuItem inherits Rectangle {
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         opacity: root.disabled ? 0.45 : 1;
-        Image {
+        // As Discord's: text from the row's edge, with an icon only where
+        // one is given (the ID badge) or a role's dot.
+        if root.current || root.icon.width > 0: Image {
             source: root.current ? @image-url("icons/check.svg") : root.icon;
             width: 16px; image-fit: contain;
             colorize: root.current ? Theme.accent : root.danger ? Theme.danger : root.highlighted ? Theme.text : Theme.muted;
         }
+        if root.dot != transparent: VerticalLayout {
+            alignment: center;
+            Rectangle { width: 12px; height: 12px; border-radius: 6px; background: root.dot; }
+        }
         VerticalLayout {
             alignment: center; horizontal-stretch: 1;
             Text {
-                text: root.text; color: root.danger ? Theme.danger : root.current || root.highlighted ? Theme.text : Theme.secondary;
-                font-size: 15px; font-weight: root.current ? 700 : 400;
+                text: root.text; color: root.danger ? Theme.danger : Theme.text;
+                font-size: 14px; font-weight: root.current ? 700 : 500;
                 overflow: elide;
             }
             if root.subtitle != "": Text {
@@ -615,6 +628,9 @@ export struct MenuRow {
     /// Greyed, and not to be chosen, such as a role this account may not
     /// give.
     disabled: bool,
+    /// A coloured dot before the text, as a role's in Discord's Roles list;
+    /// none while transparent.
+    dot: color,
 }
 
 // The rows of a ContextMenu or of a submenu.
@@ -638,7 +654,7 @@ component MenuRows inherits VerticalLayout {
             Rectangle { height: 1px; background: Theme.line; }
         }
         MenuItem {
-            text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
+            text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger; dot: row.dot;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled;
             submenu: root.submenus[index].length > 0;
             highlighted: root.current == index || root.holding == index;
@@ -841,6 +857,8 @@ export component DeviceMenu inherits Rectangle {
     in property <[string]> devices;
     in property <int> current;
     in property <string> empty;
+    /// The last row, which opens these devices' settings.
+    in property <string> settings-label: "Voice Settings";
     callback select(int);
     callback settings;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
@@ -849,7 +867,7 @@ export component DeviceMenu inherits Rectangle {
         padding: 6px; spacing: 6px;
         HorizontalLayout {
             padding-left: 8px; padding-top: 4px;
-            Text { text: root.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: root.heading; color: Theme.muted; font-size: 12px; font-weight: 600; }
         }
         if root.devices.length > 0: ScrollView {
             // Five devices before the list scrolls.
@@ -867,7 +885,7 @@ export component DeviceMenu inherits Rectangle {
         }
         @children
         Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
+        MenuItem { text: root.settings-label; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
     }
 }
 
@@ -885,6 +903,9 @@ export component VolumeSlider inherits Rectangle {
     in property <int> step: 5;
     /// Marks 100% and snaps to it.
     in property <bool> full-mark: root.maximum > 100;
+    /// Labelled as Discord's settings do: a name in white above the
+    /// track, without the amount, which its tooltip-free slider leaves out.
+    in property <bool> plain;
     callback changed(int);
     callback committed(int);
     height: column.preferred-height;
@@ -915,8 +936,12 @@ export component VolumeSlider inherits Rectangle {
     column := VerticalLayout {
         spacing: 6px;
         HorizontalLayout {
-            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-            Text { text: root.shown; color: Theme.text; font-size: 13px; font-weight: 600; }
+            Text {
+                text: root.label; horizontal-stretch: 1;
+                color: root.plain ? Theme.text : Theme.secondary;
+                font-size: root.plain ? 16px : 13px; font-weight: 600;
+            }
+            if !root.plain: Text { text: root.shown; color: Theme.text; font-size: 13px; font-weight: 600; }
         }
         track := Rectangle {
             height: 18px;
@@ -1153,7 +1178,10 @@ export global NameFonts {
         if id == 3 { return "Cherry Bomb One"; }
         if id == 4 { return "Jellybean"; }
         if id == 6 { return "MuseoModerno SemiBold"; }
+        // Downloaded from Discord at runtime, as gg sans is; see ui_font.
+        if id == 7 { return "Medieval"; }
         if id == 8 { return "Pixelify Sans SemiBold"; }
+        if id == 10 { return "Vampyre"; }
         if id == 12 { return "Zilla Slab SemiBold"; }
         if id == 13 { return "Playpen Sans SemiBold"; }
         if id == 14 { return "Mainframe SemiBold"; }
@@ -1163,21 +1191,46 @@ export global NameFonts {
     }
 }
 
-// A name as Discord shows it with someone's display name style: its font,
-// and its colour, or a gradient between two for the effects that blend.
-// Without a style, it's plain text in `plain`.
+// A name as Discord shows it with someone's display name style: its font.
+// Discord's lists and messages keep the name's own colour (a role's, or the
+// text's), so the style's colours aren't drawn. Without a style, it's plain
+// text in `plain`.
 export component StyledName inherits Text {
-    /// Discord's font and effect ids, 0 for none, and the style's colours.
+    /// Discord's font id, 0 for none.
     in property <int> font-id;
-    in property <int> effect;
-    in property <color> color-a;
-    in property <color> color-b;
     in property <brush> plain: Theme.text;
+    /// A Discord role's two colours, which the name fades between; `to` is
+    /// transparent for a role with one.
+    in property <color> from;
+    in property <color> to;
     property <string> family: Looks.shown ? NameFonts.family(root.font-id) : "";
     font-family: root.family;
-    color: root.effect == 0 || !Looks.shown ? root.plain
-        : root.effect == 1 || root.color-b == root.color-a ? root.color-a
-        : @linear-gradient(90deg, root.color-a 0%, root.color-b 100%);
+    color: root.to.alpha > 0 ? @linear-gradient(90deg, root.from 0%, root.to 100%) : root.plain;
+}
+
+// A Discord role's icon after a name or a heading: its picture, or its
+// Unicode emoji.
+export component RoleIcon inherits Rectangle {
+    in property <string> url;
+    in property <string> emoji;
+    in property <length> size: 16px;
+    property <image> picture: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    function request() {
+        if root.url != "" && root.picture.width == 0 {
+            PictureStore.request(root.url);
+        }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    horizontal-stretch: 0;
+    width: root.size; height: root.size;
+    accessible-role: none;
+    if root.url != "": Image { width: root.size; height: root.size; source: root.picture; image-fit: contain; }
+    if root.url == "" && root.emoji != "": Text {
+        width: root.size; height: root.size;
+        text: root.emoji; font-size: root.size * 0.8;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
 }
 
 // An avatar decoration, as Discord draws it: its picture over the avatar,
@@ -1205,9 +1258,13 @@ export component Decoration inherits Rectangle {
 }
 
 // A nameplate behind a row, as Discord's lists draw it: its picture across
-// the row, under the name.
+// the row, under the name, fading in from the left so the name reads; in
+// full while the row is `lit` (hovered or selected).
 export component Nameplate inherits Rectangle {
     in property <string> url;
+    in property <bool> lit;
+    /// What the row sits on, which the picture fades into.
+    in property <color> ground: Theme.sidebar;
     property <string> shown: Looks.shown ? root.url : "";
     property <image> picture: root.shown != "" ? PictureStore.picture(root.shown, PictureStore.revision) : @image-url("");
     function request() {
@@ -1217,10 +1274,22 @@ export component Nameplate inherits Rectangle {
     }
     init => { root.request(); }
     changed shown => { root.request(); }
-    border-radius: 6px; clip: true;
+    /// Its palette's colour, which tints the row under the picture as
+    /// Discord's lists do; transparent for none. `chosen` is a selected row.
+    in property <color> palette;
+    in property <bool> chosen;
+    property <float> tint-end: root.chosen ? 0.5 : root.lit ? 0.3 : 0.2;
+    border-radius: 8px; clip: true;
+    if root.shown != "" && root.palette.alpha > 0: Rectangle {
+        background: @linear-gradient(90deg, root.palette.with-alpha(0) 0%, root.palette.with-alpha(0.08) 20%, root.palette.with-alpha(0.08) 50%, root.palette.with-alpha(root.tint-end) 100%);
+    }
     if root.shown != "": Image {
         width: root.width; height: root.height;
         source: root.picture; image-fit: cover;
+        opacity: root.lit ? 1 : 0.9;
         accessible-role: none;
+    }
+    if root.shown != "" && !root.lit: Rectangle {
+        background: @linear-gradient(90deg, root.ground.with-alpha(0.8) 0%, root.ground.with-alpha(0.35) 30%, root.ground.with-alpha(0) 60%);
     }
 }

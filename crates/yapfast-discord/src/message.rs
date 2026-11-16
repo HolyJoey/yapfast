@@ -148,6 +148,11 @@ pub struct Message {
     /// shows as its own.
     #[serde(default)]
     pub forwarded: bool,
+    /// A forward's source, which Discord's client names under it: the
+    /// channel the original is in, and when it was sent, in Unix
+    /// milliseconds.
+    #[serde(default)]
+    pub forward_from: Option<(String, u64)>,
     /// Can be forwarded, as Discord's client decides from the message
     /// alone: written, and without a poll, a call or an activity.
     #[serde(default)]
@@ -279,6 +284,10 @@ pub enum Reply {
         /// to show when it has no words.
         #[serde(default)]
         attachments: bool,
+        /// The original is a forward: `content` and `attachments` are
+        /// those of the message it carries, which the reply line marks.
+        #[serde(default)]
+        forwarded: bool,
     },
     Deleted,
 }
@@ -590,17 +599,23 @@ pub fn parse(value: &Value) -> Option<Message> {
     let reply = (kind == REPLY).then(|| match &value["referenced_message"] {
         Value::Object(_) => {
             let original = &value["referenced_message"];
+            // A forward's words and files are those of the copy it carries.
+            let carried = &original["message_snapshots"][0]["message"];
+            let forwarded = original["message_reference"]["type"].as_u64() == Some(FORWARD)
+                && carried.is_object();
+            let said = if forwarded { carried } else { original };
             Reply::Message {
                 id: original["id"].as_str().unwrap_or_default().into(),
                 author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
                 author: author_name(original).into(),
-                content: original["content"].as_str().unwrap_or_default().into(),
-                attachments: original["attachments"]
+                content: said["content"].as_str().unwrap_or_default().into(),
+                attachments: said["attachments"]
                     .as_array()
                     .is_some_and(|files| !files.is_empty())
-                    || original["sticker_items"]
+                    || said["sticker_items"]
                         .as_array()
                         .is_some_and(|stickers| !stickers.is_empty()),
+                forwarded,
             }
         }
         _ => Reply::Deleted,
@@ -736,8 +751,12 @@ pub fn parse(value: &Value) -> Option<Message> {
         embeds: embeds.embeds,
         components: components.cards,
         reactions,
-        // A poll's question and answers stay as they were sent.
-        editable: matches!(kind, DEFAULT | REPLY) && !forwarded && value["poll"].is_null(),
+        // A poll's question and answers stay as they were sent, and a
+        // sticker on its own has nothing to edit, as Discord's menu shows.
+        editable: matches!(kind, DEFAULT | REPLY)
+            && !forwarded
+            && value["poll"].is_null()
+            && !sticker_only(value),
         mentions: ids(&value["mentions"], |user| user["id"].as_str()),
         mention_roles: ids(&value["mention_roles"], Value::as_str),
         mention_everyone: value["mention_everyone"].as_bool().unwrap_or(false),
@@ -760,6 +779,16 @@ pub fn parse(value: &Value) -> Option<Message> {
         },
         pinned: value["pinned"].as_bool().unwrap_or(false),
         forwarded,
+        forward_from: forwarded
+            .then(|| {
+                Some((
+                    value["message_reference"]["channel_id"]
+                        .as_str()?
+                        .to_owned(),
+                    shown["timestamp"].as_str().and_then(iso_ms)?,
+                ))
+            })
+            .flatten(),
         forwardable: written(kind)
             && value["flags"].as_u64().unwrap_or_default() & !FORWARDABLE_FLAGS == 0
             && [
@@ -1189,6 +1218,10 @@ pub struct Names {
     nicknames: HashMap<(Id, Id), String>,
     /// Members whose server profile is known, with or without a nickname.
     members: HashSet<(Id, Id)>,
+    /// Those of them whose profile came from Discord since Yapfast started.
+    /// Not saved: what was kept from before may be out of date, so its
+    /// authors are asked for again, as Discord's client asks every session.
+    fresh: HashSet<(Id, Id)>,
     /// Avatar hashes by user id, of those who set one.
     avatars: HashMap<Id, String>,
     /// What people wear, by user id: server tags, decorations, nameplates
@@ -1333,6 +1366,7 @@ impl Names {
         self.nicknames
             .retain(|(_, user), _| seen.contains_key(user));
         self.members.retain(|(_, user)| seen.contains_key(user));
+        self.fresh.retain(|(_, user)| seen.contains_key(user));
         self.member_avatars
             .retain(|(_, user), _| seen.contains_key(user));
         self.roles.retain(|(_, user), _| seen.contains_key(user));
@@ -1425,7 +1459,13 @@ impl Names {
             let until = until.as_str().and_then(iso_ms);
             changed(&mut self.timeouts, key, until);
         }
-        self.members.insert(key);
+        // A member counts as known once their roles are, which colour their
+        // name: an object that left them out mustn't keep them from being
+        // asked for.
+        if self.roles.contains_key(&key) {
+            self.members.insert(key);
+            self.fresh.insert(key);
+        }
         self.version += u64::from(known && learned);
     }
 
@@ -1440,6 +1480,7 @@ impl Names {
             | self.roles.remove(&key).is_some();
         self.timeouts.remove(&key);
         self.members.remove(&key);
+        self.fresh.remove(&key);
         self.version += u64::from(learned);
     }
 
@@ -1511,8 +1552,11 @@ impl Names {
         id(user).is_some_and(|user| self.bots.contains(&user))
     }
 
+    /// Whether a member's server profile is known, their roles included; a
+    /// cache from before roles were required may list one without them.
     pub fn knows_member(&self, guild: &str, user: &str) -> bool {
-        member_key(guild, user).is_some_and(|key| self.members.contains(&key))
+        member_key(guild, user)
+            .is_some_and(|key| self.fresh.contains(&key) && self.roles.contains_key(&key))
     }
 
     /// Known users whose name starts with `query`, or has a later word that does,
@@ -1619,6 +1663,8 @@ impl Names {
                 MentionTarget::Role(id.to_owned())
             } else if let Some(id) = tag.strip_prefix("@!").or_else(|| tag.strip_prefix('@')) {
                 MentionTarget::User(id.to_owned())
+            } else if let Some(id) = tag.strip_prefix('#') {
+                MentionTarget::Channel(id.to_owned())
             } else {
                 return;
             };
@@ -1688,7 +1734,17 @@ impl Names {
                 // shows inside others' Markdown: it's escaped to show as
                 // typed.
                 let name = server.and_then(|server| server.channel_name(id));
-                format!("#{}", escape_markdown(name.unwrap_or("channel")))
+                // A thread or post shows after a speech bubble, as
+                // Discord's client marks it, a channel after its #.
+                let thread = server.and_then(|server| {
+                    server.threads.iter().find(|thread| thread.id == id)
+                });
+                match (thread, name) {
+                    (Some(thread), _) => format!("\u{1f4ac}\u{a0}{}", escape_markdown(&thread.name)),
+                    // A no-break space after the #, as Discord's chip spaces
+                    // it, which no Markdown takes for a heading's.
+                    (None, name) => format!("#\u{a0}{}", escape_markdown(name.unwrap_or("channel"))),
+                }
             })
         } else if let Some(emoji) = tag.strip_prefix("a:").or_else(|| tag.strip_prefix(':')) {
             let (name, id) = emoji.split_once(':')?;
@@ -1746,6 +1802,18 @@ pub enum MentionTarget {
     Role(String),
     /// `@everyone` or `@here`.
     Everyone,
+    /// A channel, thread or forum post of the server, by id.
+    Channel(String),
+}
+
+/// An attachment's id, from its address on Discord's CDN:
+/// `…/attachments/{channel}/{id}/{name}`.
+pub fn attachment_id(url: &str) -> Option<&str> {
+    let path = url.split(['?', '#']).next()?;
+    let mut parts = path.split('/').skip_while(|part| *part != "attachments").skip(2);
+    parts
+        .next()
+        .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// `text` with Markdown's punctuation escaped by backslashes.
@@ -1778,8 +1846,24 @@ fn local(seconds: i64) -> chrono::DateTime<chrono::Local> {
         .with_timezone(&chrono::Local)
 }
 
+/// Whether a message is a sticker and nothing else: no text, no files.
+fn sticker_only(value: &Value) -> bool {
+    value["sticker_items"].as_array().is_some_and(|items| !items.is_empty())
+        && value["content"].as_str().is_none_or(str::is_empty)
+        && value["attachments"].as_array().is_none_or(Vec::is_empty)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_attachments_id_comes_from_its_address() {
+        assert_eq!(
+            attachment_id("https://cdn.discordapp.com/attachments/111/222/a.gsc?ex=1&is=2"),
+            Some("222")
+        );
+        assert_eq!(attachment_id("https://example.com/a.gsc"), None);
+    }
+
     use serde_json::json;
 
     use super::*;
@@ -1903,6 +1987,24 @@ mod tests {
     }
 
     #[test]
+    fn a_sticker_on_its_own_has_nothing_to_edit() {
+        let sticker = |content: &str| {
+            parse(&json!({
+                "id": "1300000000000000000",
+                "type": 0,
+                "content": content,
+                "author": {"id": "1", "username": "me"},
+                "attachments": [],
+                "embeds": [],
+                "sticker_items": [{"id": "7", "name": "Wave", "format_type": 1}],
+            }))
+            .unwrap()
+        };
+        assert!(!sticker("").editable);
+        assert!(sticker("hi").editable, "its text still is");
+    }
+
+    #[test]
     fn parses_stickers_and_spoilers() {
         let message = parse(&json!({
             "id": "1300000000000000000",
@@ -2010,6 +2112,7 @@ mod tests {
                 author: "ann".into(),
                 content: "hello".into(),
                 attachments: false,
+                forwarded: false,
             })
         );
         assert!(message.attachments[0].image);
@@ -2067,6 +2170,7 @@ mod tests {
             "message_snapshots": [{"message": {
                 "type": 0,
                 "content": "look",
+                "timestamp": "2026-10-06T10:00:00.000000+00:00",
                 "flags": 0,
                 "attachments": [{"filename": "clip.mp4", "size": 99, "url": "https://cdn/clip.mp4",
                     "content_type": "video/mp4", "proxy_url": "https://media/clip.mp4", "width": 640, "height": 360}],
@@ -2082,6 +2186,37 @@ mod tests {
             Some("https://cdn/clip.mp4")
         );
         assert_eq!(message.attachments[1].shown, Shown::Sticker);
+        // Where it came from, and when the original was sent.
+        assert_eq!(
+            message.forward_from,
+            Some(("12".to_owned(), 1_791_280_800_000))
+        );
+
+        // A reply to a forward quotes what the forward carries.
+        let answer = parse(&json!({
+            "id": "2", "type": 19, "content": "nice", "author": {"id": "1"},
+            "message_reference": {"type": 0, "message_id": "9"},
+            "referenced_message": {
+                "id": "9", "author": {"id": "2", "username": "ann"}, "content": "",
+                "message_reference": {"type": 1, "channel_id": "12", "message_id": "8"},
+                "message_snapshots": [{"message": {
+                    "content": "look",
+                    "attachments": [{"filename": "a.png", "url": "https://cdn/a.png"}],
+                }}],
+            },
+        }))
+        .unwrap();
+        assert_eq!(
+            answer.reply,
+            Some(Reply::Message {
+                id: "9".into(),
+                author_id: "2".into(),
+                author: "ann".into(),
+                content: "look".into(),
+                attachments: true,
+                forwarded: true,
+            })
+        );
 
         // A reply's reference has the default type, so it shows its own content.
         let reply = parse(&json!({
@@ -2283,7 +2418,7 @@ mod tests {
             Some("10"),
             &json!({
                 "author": {"id": "1", "username": "me"},
-                "mentions": [{"id": "2", "username": "ann", "global_name": "Ann", "member": {"nick": "Annie"}}],
+                "mentions": [{"id": "2", "username": "ann", "global_name": "Ann", "member": {"nick": "Annie", "roles": []}}],
             }),
         );
         let server = Server {
@@ -2302,7 +2437,7 @@ mod tests {
                 "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:R> <@9> a < b"
             ),
             format!(
-                "@Annie @me @Mods in #general :pog: :dance: {} @Discord user a < b",
+                "@Annie @me @Mods in #\u{a0}general :pog: :dance: {} @Discord user a < b",
                 date_time(1_791_295_500)
             )
         );
@@ -2322,6 +2457,17 @@ mod tests {
             ]
         );
         assert!(names.knows_member("10", "2") && !names.knows_member("10", "1"));
+        // A member object without roles leaves them to be asked for.
+        names.learn_member(
+            "10",
+            &json!({"user": {"id": "77", "username": "bo"}, "nick": "Bo"}),
+        );
+        assert!(!names.knows_member("10", "77"));
+        names.learn_member(
+            "10",
+            &json!({"user": {"id": "77", "username": "bo"}, "roles": ["5"]}),
+        );
+        assert!(names.knows_member("10", "77"));
         let mention = |text: &str, target, at: &[usize]| Mention {
             text: text.into(),
             target,
@@ -2330,10 +2476,11 @@ mod tests {
         assert_eq!(
             names.render_mentions(Some(&server), "<@2> and <@!2>, <@&30>, <#11> <@x"),
             (
-                "@Annie and @Annie, @Mods, #general <@x".to_owned(),
+                "@Annie and @Annie, @Mods, #\u{a0}general <@x".to_owned(),
                 vec![
                     mention("@Annie", MentionTarget::User("2".into()), &[0, 11]),
-                    mention("@Mods", MentionTarget::Role("30".into()), &[19])
+                    mention("@Mods", MentionTarget::Role("30".into()), &[19]),
+                    mention("#\u{a0}general", MentionTarget::Channel("11".into()), &[26])
                 ]
             )
         );
@@ -2401,8 +2548,15 @@ mod tests {
         assert!(names.knows_member("10", "0"));
         assert!(names.user_name(&KEPT_PEOPLE.to_string()).is_some());
         let saved = serde_json::to_vec(&names.saving()).unwrap();
-        let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
+        let mut restored = Names::restore(serde_json::from_slice(&saved).unwrap());
         assert_eq!(restored.users.len(), names.users.len());
+        assert_eq!(restored.name("10", "0"), Some("Zero"), "shown as kept");
+        assert!(
+            !restored.knows_member("10", "0"),
+            "what was kept may be out of date, so it's asked for again"
+        );
+        restored.learn_member("10", &json!({"user": {"id": "0"}, "nick": "Zero", "roles": []}));
+        assert!(restored.knows_member("10", "0"));
     }
 
     #[test]

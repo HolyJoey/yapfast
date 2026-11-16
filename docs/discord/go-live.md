@@ -123,6 +123,22 @@ quality 92. The worker reports it as a data URI, and Yapfast uploads it with
 later, up to three times; a newer still replaces an upload not done yet, and
 stopping the share cancels it.
 
+Hovering someone streaming in a server's voice channel, in the channel list,
+shows their still beside them as Discord's client does: Yapfast asks
+`GET /streams/guild:{server}:{channel}:{user}/preview` for its `url` and shows
+that picture in Discord's popout: "Streaming Now" and the LIVE pill over
+the picture in 16:9, the game they play with its icon and how long, then a
+green Watch Stream, which joins and watches as clicking them does. The
+picture is kept at its upload size, 512 by 288, not shrunk as an icon is.
+The game comes from their presence: hovering them subscribes to it
+(`GUILD_SUBSCRIPTIONS_BULK` with `members`, as Discord's client asks for the
+people it shows), and the tracker keeps the presences of people in a
+server's voice channels until they leave it. The card stays while the pointer is on
+it. Until a stream's first still is up Discord answers 404, and the card says
+no preview is available. An answer is kept for a minute, as Discord's client
+keeps it, so passing over several streams doesn't run into Discord's rate
+limit.
+
 A shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the

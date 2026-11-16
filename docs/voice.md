@@ -150,8 +150,16 @@ the one it watches, plays the call's join or leave an octave higher, quicker
 and quieter, as Discord's client sounds a stream's viewers; a call sound at the
 same moment wins, and a stream starting or ending makes no viewer sound.
 
-`sounds.rs` makes each sound as it plays. The six sets are New Kalimba, the
-default, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
+`sounds.rs` makes each sound as it plays. The default set, Discord, plays
+Discord's own sounds: the MP3s its web client loads from `discord.com/assets/`,
+which the Discord build downloads once beside gg sans, checks against their
+SHA-256 and keeps in its data folder's `sounds/`, never shipped (see
+`yapfast_discord::ui_font`). They're decoded with Symphonia as they play,
+brought to 48 kHz and 6 dB down to sit with the others; message1 sounds for
+messages and mentions alike, as in Discord. A DM call's ring and ringback play
+Discord's call_ringing and call_calling the same way, looped. Until they're there, and without
+Discord, New Kalimba plays. The six sets of Yapfast's own are New Kalimba,
+Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
 major pentatonic so any two sound well together. Felt piano, Soft marimba,
 Mellow Rhodes and Glow are synthesized; New Kalimba and Flute play the same
 notes on one recorded note each, made with ElevenLabs' sound generator and kept

@@ -528,9 +528,14 @@ async fn worker(
                 state.disconnected();
                 trim_after_call();
             }
+            // Settings says when no devices were found; outside a call
+            // that's no call's error, which the voice panel would show.
             Command::Devices => match devices(&mut state) {
                 Ok(()) => state.error = None,
-                Err(error) => state.error = Some(error.to_string()),
+                Err(_) => {
+                    state.microphones.clear();
+                    state.speakers.clear();
+                }
             },
             Command::Microphone(id) => {
                 state.microphone = Some(id);

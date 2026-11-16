@@ -330,11 +330,15 @@ impl OpenChannel {
         true
     }
 
-    /// Whether the newest messages show, from before `order` on.
+    /// Whether the newest messages show, from before `order` on. What was
+    /// kept on disk reaches only up to its own newest message until the
+    /// latest page comes: a message after that may be in the gap.
     pub(super) fn reaches(&self, order: u64) -> bool {
+        let newest = self.shown.messages.keys().next_back().copied();
         self.loaded
             && !self.detached()
             && !self.focusing
+            && (self.synced || newest.is_some_and(|newest| order <= newest))
             && (self.shown.complete || self.earliest().is_some_and(|earliest| earliest <= order))
     }
 
@@ -829,6 +833,29 @@ impl OpenChannel {
             let _ = done.send(Done::Edited { room, item, result });
         });
         Ok(())
+    }
+
+    /// Keeps only the attachments at `keep` of this account's message, as
+    /// Discord's client removes one; the change shows as an edit.
+    pub fn keep_attachments(
+        &mut self,
+        discord: &Discord,
+        done: &UnboundedSender<Done>,
+        item: String,
+        keep: Vec<String>,
+    ) {
+        let Some(id) = sent_id(&item).map(str::to_owned) else {
+            return;
+        };
+        let (discord, done) = (discord.clone(), done.clone());
+        let (room, channel) = (self.room.clone(), self.channel.clone());
+        tokio::spawn(async move {
+            let result = discord
+                .keep_attachments(&channel, &id, &keep)
+                .await
+                .map_err(|error| format!("Could not remove the attachment: {error}"));
+            let _ = done.send(Done::Edited { room, item, result });
+        });
     }
 
     pub fn edited(&mut self, message: Message) {
@@ -1363,6 +1390,8 @@ impl OpenChannel {
             color: server.and_then(|server| discord.color(server, author)),
             tag: crate::discord::name_tag(discord.tag(author)),
             attachments: original.content.is_empty() && !original.attachments.is_empty(),
+            forwarded: original.forwarded,
+            files: !original.attachments.is_empty(),
             ping: true,
             body: plain_snippet(&crate::spoiler::hide(
                 &discord.render(server, &original.content),
@@ -1606,12 +1635,15 @@ impl OpenChannel {
                 author,
                 content,
                 attachments,
+                forwarded,
             } => Reply {
                 author: name(author_id, author),
                 avatar: Some(discord.avatar(Some(&self.guild), author_id)),
                 color: server.and_then(|server| discord.color(server, author_id)),
                 tag: crate::discord::name_tag(discord.tag(author_id)),
                 attachments: content.is_empty() && *attachments,
+                forwarded: *forwarded,
+                files: *attachments,
                 ping: message.mentions.contains(author_id),
                 body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
                 item: Some(format!("d:{id}")),
@@ -1622,6 +1654,8 @@ impl OpenChannel {
                 color: None,
                 tag: None,
                 attachments: false,
+                forwarded: false,
+                files: false,
                 ping: false,
                 body: "Original message was deleted".into(),
                 item: None,
@@ -1637,9 +1671,25 @@ impl OpenChannel {
             spoilers: true,
             avatar: Some(discord.avatar(Some(&self.guild), &message.author_id)),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
+            role_look: crate::discord::role_look(
+                server.and_then(|server| discord.role_look(server, &message.author_id)),
+            ),
             tag: crate::discord::name_tag(discord.tag(&message.author_id)),
             bot: message.bot,
             forwarded: message.forwarded,
+            // Named when it's a channel of this server this account sees.
+            forward_source: message.forward_from.as_ref().and_then(|(channel, sent)| {
+                let server = server?;
+                let source = server
+                    .text_channels
+                    .iter()
+                    .find(|listed| &listed.id == channel)?;
+                Some(Box::new(crate::chat::ForwardSource {
+                    room: crate::discord::room_id(&server.id, channel),
+                    name: source.name.clone(),
+                    timestamp: sent / 1000,
+                }))
+            }),
             body,
             formatted: ordinary,
             time: crate::clock::time(timestamp),

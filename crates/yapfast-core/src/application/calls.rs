@@ -147,6 +147,16 @@ impl Application {
         effects
     }
 
+    /// Joins a DM's call with the camera on, as Discord's green video
+    /// button does.
+    pub(super) fn accept_call_with_video(&mut self, id: String) -> Vec<Effect> {
+        let mut effects = self.accept_call(id);
+        if !effects.is_empty() {
+            effects.extend(self.dispatch(Action::Voice(voice::Command::Video(true))));
+        }
+        effects
+    }
+
     pub(super) fn confirm_voice_switch(&mut self) -> Vec<Effect> {
         let Some(id) = self.state.switch_voice.take() else {
             return vec![];
@@ -201,6 +211,32 @@ impl Application {
             self.state.pending_watch = Some((room, user));
         }
         effects
+    }
+
+    /// The pointer went onto someone streaming, or off: shows their stream's
+    /// preview, kept from a moment ago or asked of Discord.
+    pub(super) fn peek_stream(&mut self, peek: Option<(String, String)>) -> Vec<Effect> {
+        let Some((room, user)) = peek else {
+            self.state.stream_peek = None;
+            return vec![];
+        };
+        let now = crate::clock::now_ms();
+        self.stream_previews
+            .retain(|_, (_, when)| now.saturating_sub(*when) < super::PREVIEW_KEPT_MS);
+        let kept = self.stream_previews.get(&(room.clone(), user.clone())).cloned();
+        let ask = kept.is_none();
+        let (url, answered) = kept.map_or((None, false), |(url, _)| (url, true));
+        self.state.stream_peek = Some(StreamPeek {
+            room: room.clone(),
+            user: user.clone(),
+            url,
+            answered,
+        });
+        if ask {
+            vec![Effect::Backend(Command::Discord(DiscordCommand::StreamPreview { room, user }))]
+        } else {
+            vec![]
+        }
     }
 
     /// Watches the stream [`AppState::pending_watch`] waits for, once its

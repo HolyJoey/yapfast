@@ -17,16 +17,17 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 9] = [
+const HEADER: [MenuChoice; 10] = [
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
     MenuChoice::CreateCategory,
+    MenuChoice::ShowAllChannels,
     MenuChoice::ServerNotifications,
     MenuChoice::EditServerProfile,
-    MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
+    MenuChoice::CopyId,
 ];
 
 /// Asks before leaving a Discord server or group DM.
@@ -173,8 +174,8 @@ impl Application {
                 .any(|room| room.id == id && !room.direct)
     }
 
-    /// The server menu: marking it read, inviting, its notifications, then
-    /// copying.
+    /// The server menu, in Discord's order: marking it read, inviting, its
+    /// notifications, one's profile there, managing it, leaving, then its id.
     fn discord_server_choices(&self, id: &str, listed: &[MenuChoice]) -> Vec<MenuChoice> {
         let mut choices = vec![];
         if listed.contains(&MenuChoice::MarkRead) {
@@ -193,17 +194,17 @@ impl Application {
                 MenuChoice::MuteServer
             });
             choices.push(MenuChoice::ServerNotifications);
+            choices.push(MenuChoice::HideMuted);
             if notifications.show_all.is_some() {
                 choices.push(MenuChoice::ShowAllChannels);
             }
-            choices.push(MenuChoice::HideMuted);
-        }
-        if self.state.discord_online && !self.settings_sections(id).is_empty() {
-            choices.push(MenuChoice::ServerSettings);
         }
         // One's own profile there, which anyone may change something of.
         if self.state.discord_online && self.state.discord_user.is_some() {
             choices.push(MenuChoice::EditServerProfile);
+        }
+        if self.state.discord_online && !self.settings_sections(id).is_empty() {
+            choices.push(MenuChoice::ServerSettings);
         }
         if self.manages(id) {
             choices.extend([MenuChoice::CreateChannel, MenuChoice::CreateCategory]);
@@ -211,7 +212,8 @@ impl Application {
         if self.state.discord_online && self.may_leave(id) {
             choices.push(MenuChoice::LeaveServer);
         }
-        choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);
+        // Discord's offers the id to copy, not a link.
+        choices.push(MenuChoice::CopyId);
         choices
     }
 
@@ -302,6 +304,12 @@ impl Application {
     /// Permissions there.
     fn edits(&self, place: &str) -> bool {
         !self.channel_sections(place).is_empty()
+    }
+
+    /// Whether a Discord channel's settings open for this account: its row's
+    /// gear and its welcome's Edit Channel, as in Discord.
+    pub fn may_edit_channel(&self, place: &str) -> bool {
+        self.discord_channel(place) && self.edits(place)
     }
 
     /// A Discord channel's menu: a conversation's, with inviting to it and
@@ -897,10 +905,18 @@ impl Application {
         } else {
             MenuChoice::CreateChannel
         };
-        if !self.menu_choices(&place).contains(&choice) {
+        // A category heading's "+" makes one in it, as Discord's does,
+        // though its menu doesn't offer to.
+        let in_category = kind != ChannelKind::Category && self.state.is_category(&place);
+        if !(in_category && self.manages(&place)) && !self.menu_choices(&place).contains(&choice) {
             return vec![];
         }
-        let parent = self.category_of(&place);
+        // A category's own "+" makes one in it; a channel's, beside it.
+        let parent = if in_category {
+            Some(place.clone())
+        } else {
+            self.category_of(&place)
+        };
         let name = parent
             .as_deref()
             .and_then(|category| {

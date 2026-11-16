@@ -73,6 +73,10 @@ export component TitleBar inherits Rectangle {
     callback back;
     callback forward;
     callback help;
+    /// Discord's Inbox button shows, and whether its list is open.
+    in property <bool> can-inbox;
+    in property <bool> inbox-open;
+    callback inbox;
     callback move-window;
     callback minimize-window;
     callback maximize-window;
@@ -141,6 +145,13 @@ export component TitleBar inherits Rectangle {
     HorizontalLayout {
         alignment: end;
         padding-right: root.frame ? 0px : 12px;
+        if root.can-inbox: VerticalLayout {
+            alignment: center; padding-right: 4px;
+            BarButton {
+                icon: @image-url("icons/inbox.svg"); label: "Inbox";
+                clicked => { root.inbox(); }
+            }
+        }
         VerticalLayout {
             alignment: center; padding-right: 8px;
             BarButton {

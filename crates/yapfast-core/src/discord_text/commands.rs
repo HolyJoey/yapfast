@@ -108,6 +108,7 @@ pub fn command(
         | Command::Voters { room, .. }
         | Command::RemoveReactor { room, .. }
         | Command::Delete { room, .. }
+        | Command::KeepAttachments { room, .. }
         | Command::Pin { room, .. }
         | Command::Retry { room, .. }
         | Command::Cancel { room, .. }
@@ -280,6 +281,9 @@ pub fn command(
             item, key, user, ..
         } => channel.remove_reactor(discord, done, &item, &key, user),
         Command::Delete { item, .. } => channel.delete(discord, done, &item),
+        Command::KeepAttachments { item, keep, .. } => {
+            channel.keep_attachments(discord, done, item, keep);
+        }
         Command::Pin { item, pinned, .. } => channel.pin(discord, done, &item, pinned),
         Command::Retry { item, .. } => {
             channel.retry(discord, done, &item);

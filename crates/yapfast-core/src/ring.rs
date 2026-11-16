@@ -83,8 +83,17 @@ impl Ringer {
                     2,
                     Some(Duration::from_millis(100)),
                 );
+                // Discord's own ring once it's downloaded, as mono.
+                let pattern = crate::sounds::discord_ring(tone == Tone::Outgoing)
+                    .map(|stereo| {
+                        stereo
+                            .chunks_exact(2)
+                            .map(|pair| (pair[0] + pair[1]) / 2.0)
+                            .collect::<Vec<f32>>()
+                    })
+                    .unwrap_or_else(|| pattern(tone));
                 match output {
-                    Ok(output) => play(&pattern(tone), output, &stopped),
+                    Ok(output) => play(&pattern, output, &stopped),
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
                         "could not open the speakers to ring"

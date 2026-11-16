@@ -84,6 +84,31 @@ pub fn cell(key: &str) -> EmojiCell {
     }
 }
 
+/// The Unicode emoji Discord's settings name, as its frecency counts
+/// them: by name ("skull", "thumbsup"), with a skin tone after `::`; or the
+/// emoji itself. `None` for a name it doesn't know.
+pub fn from_name(name: &str) -> Option<String> {
+    if let Some(emoji) = emojis::get(name) {
+        return Some(emoji.as_str().to_owned());
+    }
+    let (base, tone) = name.split_once("::").unwrap_or((name, ""));
+    let emoji = emojis::get_by_shortcode(base)?;
+    let tone = match tone {
+        "skin-tone-1" => Some(emojis::SkinTone::Light),
+        "skin-tone-2" => Some(emojis::SkinTone::MediumLight),
+        "skin-tone-3" => Some(emojis::SkinTone::Medium),
+        "skin-tone-4" => Some(emojis::SkinTone::MediumDark),
+        "skin-tone-5" => Some(emojis::SkinTone::Dark),
+        _ => None,
+    };
+    Some(
+        tone.and_then(|tone| emoji.with_skin_tone(tone))
+            .unwrap_or(emoji)
+            .as_str()
+            .to_owned(),
+    )
+}
+
 /// A reaction's emoji as Discord's client names it: `:name:` for a custom
 /// one, whose key is already that, and the first shortcode of a Unicode one
 /// that's a word, such as `:thumbsup:` rather than `:+1:`; the emoji itself

@@ -101,6 +101,9 @@ pub(super) fn found(
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
+        role_look: discord::role_look(
+            server.and_then(|server| discord.role_look(server, &message.author_id)),
+        ),
         bot: message.bot,
         body,
         author,
@@ -309,16 +312,45 @@ pub(super) fn hits_in(discord: &Discord, guild: &str, messages: &[Message]) -> V
         .collect()
 }
 
+/// Messages that mention this account, each with its server's id or
+/// [`yapfast_discord::ready::PRIVATE`], as [`found`] shows them, with their
+/// rooms.
+pub(super) fn mention_hits(discord: &Discord, mentions: &[(String, Message)]) -> Vec<SearchHit> {
+    let snapshot = discord.snapshots().borrow().clone();
+    mentions
+        .iter()
+        .map(|(guild, message)| {
+            let server = snapshot
+                .servers
+                .iter()
+                .find(|server| &server.id == guild)
+                .map(|server| &*server.server);
+            SearchHit {
+                room: discord::room_id(guild, &message.channel_id),
+                message: found(discord, server, message),
+            }
+        })
+        .collect()
+}
+
 /// The custom emoji in a message's text and reactions.
 pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
     let mut found = emoji_in(&message.content);
-    for card in &message.components {
-        for text in card.texts().chain(card.rows.iter().flat_map(button_emoji)) {
-            for emoji in emoji_in(text) {
-                if !found.iter().any(|known| known.id == emoji.id) {
-                    found.push(emoji);
-                }
-            }
+    // An embed's text, as a bot's role menu shows its emoji, and its cards'.
+    let embedded = message.embeds.iter().flat_map(|embed| {
+        embed
+            .description
+            .iter()
+            .map(String::as_str)
+            .chain(embed.fields.iter().map(|field| field.value.as_str()))
+    });
+    let carded = message
+        .components
+        .iter()
+        .flat_map(|card| card.texts().chain(card.rows.iter().flat_map(button_emoji)));
+    for emoji in embedded.chain(carded).flat_map(emoji_in) {
+        if !found.iter().any(|known| known.id == emoji.id) {
+            found.push(emoji);
         }
     }
     let reactions = message.reactions.iter().filter_map(|reaction| {
@@ -431,6 +463,9 @@ pub(super) fn forum_topic(discord: &Discord, guild: &str, forum: &str) -> Option
     Some(topic(discord, Some(server), &raw))
 }
 
+/// The colour of a channel's or post's chip in a message, as Discord draws it.
+const CHANNEL_CHIP: u32 = 0x949cf7;
+
 /// A message's body as Yapfast shows it, and who and what it mentions there.
 pub(super) fn rendered(
     discord: &Discord,
@@ -443,10 +478,9 @@ pub(super) fn rendered(
         .map(|mention| {
             // @everyone and @here take the colour of mentions.
             let (target, color) = match mention.target {
-                MentionTarget::User(id) => {
-                    let color = server.and_then(|server| discord.color(server, &id));
-                    (Target::User(id), color)
-                }
+                // Discord draws someone mentioned in its chip colour, not
+                // their role's.
+                MentionTarget::User(id) => (Target::User(id), Some(CHANNEL_CHIP)),
                 MentionTarget::Role(id) => {
                     let color = server
                         .and_then(|server| server.role_colors.get(&id))
@@ -454,6 +488,14 @@ pub(super) fn rendered(
                     (Target::Role(id), color)
                 }
                 MentionTarget::Everyone => (Target::Everyone, None),
+                // Discord's chip: lavender on a blurple pill.
+                MentionTarget::Channel(id) => (
+                    Target::Channel(discord::room_id(
+                        server.map_or("", |server| server.id.as_str()),
+                        &id,
+                    )),
+                    Some(CHANNEL_CHIP),
+                ),
             };
             Mentioned {
                 text: mention.text,
@@ -563,6 +605,12 @@ pub(super) fn chat_profile(
             })
             .collect(),
         handle: profile.username,
+        badges: profile.badges,
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|account| (account.kind, account.name, account.link))
+            .collect(),
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
         presence: None,
@@ -650,17 +698,20 @@ pub(super) fn chat_embed(
     embed: &yapfast_discord::embed::Embed,
 ) -> Embed {
     let text = |text: &Option<String>| text.clone().unwrap_or_default();
+    let description = embed
+        .description
+        .as_deref()
+        .map(|description| rendered(discord, server, description))
+        .unwrap_or_default();
     Embed {
         color: embed.color,
         provider: text(&embed.provider),
         author: text(&embed.author),
         title: text(&embed.title),
         url: text(&embed.url),
-        description: embed
-            .description
-            .as_deref()
-            .map(|description| discord.render(server, description))
-            .unwrap_or_default(),
+        // Mentions in it as in a message's text: coloured, and linked.
+        description: description.0,
+        mentions: description.1,
         fields: embed
             .fields
             .iter()
@@ -680,11 +731,15 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         id: member.user_id,
         name: member.name,
         username: member.username,
-        role: Role::Member,
+        // A server's or group DM's owner, whom the list crowns.
+        role: if member.owner { Role::Admin } else { Role::Member },
         avatar: Some(member.avatar),
         group: Some(member.group),
         presence: Some(discord::presence(member.presence)),
         color: member.color,
+        role_look: discord::role_look(member.look),
+        group_icon: member.group_icon,
+        booster: member.booster,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,

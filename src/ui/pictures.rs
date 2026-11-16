@@ -636,8 +636,12 @@ pub(super) fn gallery_within(
 
 type Cells = Vec<(ImageCell, Option<Arc<Picture>>)>;
 
+/// How tall a GIF shows in a message, at most.
+const GIF_HEIGHT: i32 = 300;
+
 fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (Cells, i32, i32) {
-    const TILE: i32 = 178;
+    // Two to a row as wide as one picture may be, as Discord's mosaic.
+    const TILE: i32 = 273;
     const GAP: i32 = 4;
     let cell = |index: usize,
                 attachment: &yapfast_core::chat::Attachment,
@@ -683,6 +687,12 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             let (width, height) = match preview {
                 Some(preview) => (preview.width as i32, preview.height as i32),
                 None => coming_size(attachment),
+            };
+            // A GIF shows at most 300px tall, as Discord's do.
+            let (width, height) = if attachment.gif.is_some() && height > GIF_HEIGHT {
+                ((width * GIF_HEIGHT / height).max(1), GIF_HEIGHT)
+            } else {
+                (width, height)
             };
             let image = ImageCell {
                 width,

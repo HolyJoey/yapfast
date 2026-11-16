@@ -40,11 +40,14 @@ pub enum Target {
     User(String),
     Role(String),
     Everyone,
+    /// A Discord channel, thread or post, by room id: its link opens it.
+    Channel(String),
 }
 
 const USER_LINK: &str = "yapfast:user/";
 const ROLE_LINK: &str = "yapfast:role/";
 const EVERYONE_LINK: &str = "yapfast:everyone";
+const CHANNEL_LINK: &str = "yapfast:channel/";
 const MATRIX_TO: &str = "https://matrix.to/#/";
 
 /// The address a mention links to in a message; clicking it opens the person or role.
@@ -53,6 +56,7 @@ pub fn link(target: &Target) -> String {
         Target::User(id) => format!("{USER_LINK}{id}"),
         Target::Role(id) => format!("{ROLE_LINK}{id}"),
         Target::Everyone => EVERYONE_LINK.to_owned(),
+        Target::Channel(room) => format!("{CHANNEL_LINK}{room}"),
     }
 }
 
@@ -66,6 +70,9 @@ pub fn target(link: &str) -> Option<Target> {
     }
     if link == EVERYONE_LINK {
         return Some(Target::Everyone);
+    }
+    if let Some(room) = link.strip_prefix(CHANNEL_LINK) {
+        return Some(Target::Channel(room.to_owned()));
     }
     let user = link.strip_prefix(MATRIX_TO)?;
     let user = user.split(['?', '/']).next()?;
@@ -114,7 +121,11 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
         }
         // A name is shown as typed: one such as `[x](https://…)` would
         // otherwise be a link of its own.
-        let text = crate::links::escape_markdown(&mention.text);
+        // A channel's name comes escaped already, as it shows in the text.
+        let text = match &mention.target {
+            Target::Channel(_) => mention.text.clone(),
+            _ => crate::links::escape_markdown(&mention.text),
+        };
         let color = mention.color.unwrap_or(link_color) & 0xff_ffff;
         out.push_str(&format!(
             "<font color=\"#{color:06x}\">[{text}](<{}>)</font>",

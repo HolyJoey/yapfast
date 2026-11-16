@@ -56,22 +56,16 @@ impl History {
     }
 }
 
-/// Where the window is, as Discord's title bar says it: the friends list, a
-/// DM with its avatar, or a server with its icon.
+/// Where the window is, as Discord's title bar says it: the friends list,
+/// Direct Messages for any DM, or a server with its icon.
 fn title(state: &AppState) -> Title {
-    let room = state
-        .selected
-        .as_ref()
-        .and_then(|id| state.rooms.iter().find(|room| &room.id == id));
     let (place, url, round, glyph) = match place(state) {
         Spot::Friends => ("Friends".to_owned(), String::new(), false, 1),
         Spot::Requests => ("Message Requests".to_owned(), String::new(), false, 2),
-        Spot::DirectMessages => ("Direct Messages".to_owned(), String::new(), false, 0),
+        // A DM's title is Discord's own, with its logo, whoever it's with.
+        Spot::DirectMessages => ("Direct Messages".to_owned(), String::new(), false, 3),
         Spot::Room(_) if state.navigation == Navigation::DirectMessages => {
-            let room = room.map_or((String::new(), String::new()), |room| {
-                (room.name.clone(), room.avatar.clone().unwrap_or_default())
-            });
-            (room.0, room.1, true, 0)
+            ("Direct Messages".to_owned(), String::new(), false, 3)
         }
         Spot::Room(_) | Spot::Server(_) => {
             let server = match &state.navigation {

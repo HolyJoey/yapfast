@@ -241,7 +241,7 @@ impl Adapter {
                     let newest = state.shown_favorite_gifs().first().map(|f| f.src.clone());
                     tile(
                         1,
-                        "Favorites",
+                        "Favourites",
                         "",
                         newest.as_deref().unwrap_or_default(),
                         Shape::Fixed(HOME_TILE),

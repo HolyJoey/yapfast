@@ -118,8 +118,8 @@ where
 
 /// When a message was sent, as Discord's client stamps it from `now`: its
 /// time today, such as `21:41`, `Yesterday at …` or `Tomorrow at …`, and
-/// the date before the time on other days, `20/10/2026 21:41` on a 24-hour
-/// clock and `10/20/2026 9:41 PM` on a 12-hour one, as British and American
+/// the date before the time on other days, `20/10/2026, 21:41` on a 24-hour
+/// clock and `10/20/2026, 9:41 PM` on a 12-hour one, as British and American
 /// English write it.
 pub fn sent(seconds: u64, now: u64, twelve_hour: bool, with_seconds: bool) -> String {
     sent_in(&Local, seconds, now, twelve_hour, with_seconds)
@@ -142,8 +142,9 @@ where
         0 => time,
         -1 => format!("Yesterday at {time}"),
         1 => format!("Tomorrow at {time}"),
-        _ if twelve_hour => format!("{} {time}", then.format("%m/%d/%Y")),
-        _ => format!("{} {time}", then.format("%d/%m/%Y")),
+        // A comma between, as Discord's client writes it.
+        _ if twelve_hour => format!("{}, {time}", then.format("%m/%d/%Y")),
+        _ => format!("{}, {time}", then.format("%d/%m/%Y")),
     }
 }
 
@@ -262,11 +263,11 @@ mod tests {
         );
         assert_eq!(
             sent_in(&utc, now - 2 * day, now, false, false),
-            "04/10/2026 23:30"
+            "04/10/2026, 23:30"
         );
         assert_eq!(
             sent_in(&utc, now - 2 * day, now, true, false),
-            "10/04/2026 11:30 PM"
+            "10/04/2026, 11:30 PM"
         );
         assert_eq!(
             sent_in(&utc, now + day, now, false, false),

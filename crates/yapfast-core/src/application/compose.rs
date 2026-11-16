@@ -223,6 +223,7 @@ impl Application {
         } else {
             let wired = mention::wire(&text, &self.state.mention_candidates());
             if Network::of(&id) == Network::Discord {
+                let wired = self.state.wire_channels(&id, &wired);
                 let usable: Vec<chat::CustomEmoji> = self
                     .usable_emoji()
                     .into_iter()
@@ -270,6 +271,8 @@ impl Application {
                                     color: original.and_then(|original| original.color),
                                     tag: original.and_then(|original| original.tag.clone()),
                                     attachments: false,
+                                    forwarded: false,
+                                    files: false,
                                     ping: true,
                                     body,
                                     item: Some(item),

@@ -59,7 +59,15 @@ server's roles or channel names, or to who's blocked, renders them all. A closed
 since they hold its previews.
 
 Unread dots and mention counts follow Discord's read states, mutes and
-@everyone and role suppression, including passive updates from large servers.
+@everyone and role suppression, including passive updates from large servers. As
+Discord's client does, a server channel is unread only where every message
+counts as unread there (with `USE_NEW_NOTIFICATIONS` in READY's
+`notification_settings`, the channel's, category's or server's unread flags
+decide, else the notification level); elsewhere only its mentions show. In a
+Community server listing only followed channels, a channel quiet for a week
+shows nothing, and one not followed shows only its mentions unless read in
+the last three days. A friend's presence is kept from the friends' list;
+servers' presences, which may leave out a status, don't overwrite it.
 A message that calls on this account is highlighted in the timeline, as in
 Discord: one that mentions it, one of its roles in the server, or @everyone
 or @here, from a message's `mentions`, `mention_roles` and
@@ -204,6 +212,51 @@ an error.
   nicknames, as Discord's client shows them. A moderator removes someone's
   reaction with `DELETE …/reactions/{emoji}/0/{user}?location=Message&burst=false`.
   Super reactions aren't listed apart yet.
+- A message's author shows by their server profile, nickname, role colour
+  and role icon, as Discord's client does: REST messages carry no member
+  object, so the authors of a page not known this session are asked for
+  over the gateway (op 8 with `user_ids`), and the page shows again when
+  they come. What was kept on disk shows meanwhile.
+- The Inbox, the button at the title bar's right, lists the messages that
+  mention this account as Discord's client asks for them: `GET
+  /users/@me/mentions?limit=25&roles=true&everyone=true`, the newest
+  first. Discord leaves a mention's server out, so its channel's server
+  names it; a run in one channel goes under the channel's and server's
+  names, and Jump opens the channel at the message. Each mention's ✓
+  takes it out at once and from Discord's Inbox too (`DELETE
+  /users/@me/mentions/{id}`). Older pages aren't there yet.
+- A file card's name is the link that saves it. Hovering the card shows
+  Edit Message and Remove Attachment on this account's message, and
+  Download on any. Removing keeps the message's other attachments by id
+  (`PATCH /channels/{channel}/messages/{id}` with `attachments`, each
+  id read from its CDN address); with no text and no other file left, it
+  asks to delete the message instead, as Discord's client does.
+- A channel, thread or post named in a message (`<#id>`) shows as a chip
+  in the link colour, a thread or post after a speech bubble, and opens
+  it when clicked. A forum post has Discord's bar above its messages:
+  React to Post on its first message, Follow or Following, which joins or
+  leaves it, its link, and the way to its start.
+- Mark Unread, in a message's menu, acks the channel up to the message
+  before it with Discord's manual flag (`POST
+  /channels/{id}/messages/{before}/ack` with `manual` and `mention_count`
+  0), the snowflake just before it when it's the first loaded; the channel
+  then isn't read again while it stays open, as in Discord's client.
+- Stickers: the composer's sticker button opens the picker's Stickers tab,
+  which lists the stickers this account may send there under their
+  server: the open server's, or with Nitro every server's, as Discord
+  allows; Lottie ones, which only Discord makes, are left out. A server's
+  come with READY's guilds and GUILD_STICKERS_UPDATE. A click sends one as
+  a message of its own (`sticker_ids`). A sticker sent on its own, without
+  text or files, has no Edit Message, as in Discord.
+- A message's hover bar has Add Reaction but no quick reactions (left out
+  by choice); the quick reactions on its menu are those the account
+  uses most on any Discord client: the second settings protobuf's
+  `emoji_reaction_frecency`, read once a session, names Unicode emoji by
+  name ("skull"), which Yapfast turns into the emoji; custom ones it
+  leaves out, as their id alone doesn't say how to show them.
+  Jumping into another channel loads only the window around the message:
+  the one around the last read message, which opening an unread channel
+  asks for, would answer first from what was kept and end the jump.
 - Messages support text, replies, edits, deletions, reactions, mentions and
   attachments. Up to ten files go with a message, uploaded to Discord's
   storage first and then named in the message. As in Discord's client,
@@ -504,7 +557,11 @@ Each forward is `POST /channels/{target}/messages` with no content and a
 channel and server, with `X-Context-Properties` of `{"location":
 "forwarding"}`, as Discord's client sends it. Discord copies the original
 into the new message's `message_snapshots`, which Yapfast shows under
-"Forwarded". Discord takes no text with a forward (error 160011), so the
+"Forwarded", set in from a bar. Under it comes where the original is, as "#
+channel • time", from the reference's `channel_id` and the snapshot's
+`timestamp`, when that's a channel of the same server this account sees;
+clicking it opens the channel. A reply to a forward quotes the words of the
+message it carries, after a forward arrow. Discord takes no text with a forward (error 160011), so the
 message added goes after it as one of its own, with the same location, to
 each conversation the forward reached. A slowmode channel this account
 doesn't bypass gets the forward alone, as the dialog warns, since the
