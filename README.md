@@ -20,6 +20,27 @@
   channel icons for rules and announcements, an invite button on channels, and
   replies that show the colour, the tag and attachments of the message they
   answer.
+- **Server list and header like Discord's:** the server's banner, Discord's
+  verified, partnered and discoverable badges, the Boost Goal bar, Channels &
+  Roles, a "+" on categories and a gear on channels for those who may manage
+  them, and locks on private channels.
+- **Messages like Discord's:** Discord's dates, channel links as chips that
+  open the channel, the "Welcome to #channel!" header, file cards with edit,
+  remove and download, GIF badges and Discord's image grid, embeds with custom
+  emoji and coloured mentions, Mark Unread, Copy Message Link and OP badges.
+  The hover bar has Add Reaction only, no quick reactions.
+- **Stickers:** a sticker picker and button in the message box.
+- **Image viewer:** who posted it and when, with Discord's buttons.
+- **People:** Discord's right-click menu (Start a Call, Add Note, Play on
+  Spotify, Roles) and full profile, with Member Since, roles, connected
+  accounts, activities and badges.
+- **Voice:** hover someone who's live for Discord's stream preview, with their
+  game and Watch Stream; a camera menu, joining with video, and Mic Test.
+- **Settings like Discord's:** its pages, groups and names (Data & Privacy,
+  Messaging Permissions, Accessibility, System, Language & Time, Activity
+  Privacy), with each option where Discord has it.
+- **Discord's sounds:** its own notification and call sounds, downloaded from
+  Discord like gg sans (see below).
 - **Emoji picker like Discord's:** its categories, 9 columns, skin tones and
   `:shortcode:` names.
 - **Composer:** no send button (Enter sends), and messages no longer show
@@ -49,7 +70,10 @@ the next start. The downloaded files are in the `fonts` folder of Yapfast's
 data folder.
 
 The fonts for display name styles are free fonts under the SIL Open Font
-License; see [`ui/fonts/styles`](ui/fonts/styles/README.md).
+License; see [`ui/fonts/styles`](ui/fonts/styles/README.md). Two of Discord's
+name styles, and Discord's notification and call sounds, come from Discord the
+same way: downloaded on first start, checked against their checksums, and
+never in this repository or the downloads.
 
 ## Download
 
@@ -161,10 +185,12 @@ the first time it runs. [Without Nix](#without-nix) below has the details.
 Windows builds are cross-compiled from Linux, with Nix:
 
 ```sh
-nix develop path:./nix#windows --command scripts/build-windows discord
+nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
 ```
 
-The ZIP and installer land in `target/dist/discord`. Building on Windows
+The ZIP lands in `target/dist/discord`. The installer needs Inno Setup,
+which doesn't run under Wine, so cross-built releases come as the ZIP only
+(add `--no-installer`). Building on Windows
 itself is possible but only meant for development; see
 [docs/building.md](docs/building.md#windows).
 
@@ -318,8 +344,8 @@ The game you play, found among your running programs on Linux, Windows and
 macOS, Steam's and Wine's included, and on Linux the Rich Presence games send,
 with details, elapsed time, images and buttons.
 
-**Settings → Game activity** turns sharing on and off as Discord's own setting
-does, and names games Yapfast doesn't know. See
+**Settings → Activity Privacy** turns sharing on and off as Discord's own setting
+does, and **Settings → Registered Games** names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
 [Rich Presence](docs/discord/people.md#linux-rich-presence).
 
@@ -440,7 +466,7 @@ double-click `yapfast.exe`.
 
 Yapfast starts with Windows and waits in the tray, so messages and calls still
 reach you. Untick that in the installer, or turn it off later in **Settings →
-Advanced**.
+System**.
 
 ### Linux
 
@@ -533,8 +559,8 @@ hell no.
 <br>
 
 It already keeps a 180 Hz monitor fed, and it takes less memory. There's a GPU
-renderer too, behind **Render with the GPU** in Settings, if you'd rather use
-that.
+renderer too, behind **Enable Hardware Acceleration** in Settings → System,
+if you'd rather use that.
 
 </details>
 
